@@ -4,13 +4,22 @@ import java.io.Console;
 import java.util.*;
 
 /**
- * Запрашивает у пользователя пароль для всех учёток,
- * где password == null || "".
+ * Запрашивает у пользователя пароль для всех учёток, у которых поле
+ * {@code password} пустое. Используется в {@link Main} перед подключением
+ * к серверам.
  */
 public final class InstanceConfigEnreacher {
 
     private InstanceConfigEnreacher() { }
 
+    /**
+     * Проходит список конфигов, группируя их по имени пользователя, и
+     * единожды спрашивает пароль для каждой учётки. Возвращает тот же список,
+     * где у нужных элементов заполнено поле {@code password}.
+     *
+     * @param list исходные конфигурации
+     * @return список с заполненными паролями
+     */
     public static List<InstanceConfig> enrichWithPasswords(List<InstanceConfig> list) {
         // собираем userName → List<InstanceConfig> без пароля
         Map<String, List<InstanceConfig>> needPwd = new LinkedHashMap<>();

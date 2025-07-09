@@ -12,8 +12,10 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * Сохраняет ResultSet в XML-файл:
- *   out_yyyyMMdd_HHmm / <CI>_<reqId>.xml
+ * Сохраняет {@link ResultSet} в XML-файл.
+ * Файлы складываются в каталог вида {@code out_yyyyMMdd_HHmm},
+ * имя файла — {@code <CI>_<reqId>.xml}. Используется классом
+ * {@link db.ServerRequest} после выполнения каждого запроса.
  */
 public final class ResponseProcessor {
 
@@ -23,6 +25,14 @@ public final class ResponseProcessor {
 
     private ResponseProcessor() { }
 
+    /**
+     * Принимает результаты запроса и пишет их в файл. Вызывается из
+     * {@link db.ServerRequest}.
+     *
+     * @param ci    идентификатор сервера
+     * @param reqId идентификатор запроса
+     * @param rs    {@link ResultSet} с данными
+     */
     public static void handle(String ci, String reqId, ResultSet rs)
             throws SQLException, IOException {
 
@@ -67,6 +77,9 @@ public final class ResponseProcessor {
 
     // ───────────────────────────────────────────────────────────
 
+    /**
+     * Создаёт каталог для вывода, если он ещё не создан.
+     */
     private static File ensureBaseDir() {
         if (baseDir == null) {
             synchronized (ResponseProcessor.class) {
@@ -81,6 +94,9 @@ public final class ResponseProcessor {
         return baseDir;
     }
 
+    /**
+     * Экранирует спецсимволы XML в строке.
+     */
     private static String escape(String s) {
         return s.replace("&", "&amp;")
                 .replace("<", "&lt;")
