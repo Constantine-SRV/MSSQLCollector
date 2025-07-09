@@ -4,10 +4,19 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.util.concurrent.CompletableFuture;
 
+/**
+ * Утилитный класс для получения JDBC-соединения с MSSQL.
+ */
 public final class DbConnector {
 
     private DbConnector() {}
 
+    /**
+     * Открывает соединение с базой данных асинхронно. Метод вызывается из
+     * {@link db.ServerRequest#execute(java.util.concurrent.Executor)} и
+     * возвращает {@link CompletableFuture}, завершающийся успешным
+     * подключением либо исключением.
+     */
     public static CompletableFuture<Connection> getConnectionAsync(
             String url, String user, String password) {
 

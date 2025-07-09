@@ -4,11 +4,18 @@ import java.sql.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
+/**
+ * Вспомогательные методы для выполнения SELECT-запросов.
+ */
 public final class QueryExecutor {
 
     private QueryExecutor() { }
 
-    /** Выполнить SELECT и вывести строки в консоль. */
+    /**
+     * Выполняет SELECT-запрос и печатает результат в консоль. Используется
+     * при отладке и демонстрации. Возвращает {@link CompletableFuture},
+     * который завершается после завершения печати.
+     */
     public static CompletableFuture<Void> execAndPrintAsync(
             Connection conn, String sql, int recordId, Executor executor) {
 

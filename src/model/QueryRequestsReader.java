@@ -6,10 +6,19 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Загружает SQL-запросы из XML-файла.
+ */
 public final class QueryRequestsReader {
 
     private QueryRequestsReader() { }
 
+    /**
+     * Читает файл с запросами и формирует список объектов {@link QueryRequest}.
+     *
+     * @param xmlPath путь к XML-файлу
+     * @return список запросов
+     */
     public static List<QueryRequest> read(String xmlPath) throws Exception {
         List<QueryRequest> list = new ArrayList<>();
         File file = new File(xmlPath);

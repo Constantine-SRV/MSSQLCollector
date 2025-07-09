@@ -6,7 +6,17 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Чтение конфигурации MSSQL-инстансов из XML-файла.
+ */
 public class InstancesConfigReader {
+
+    /**
+     * Загружает и парсит файл конфигурации.
+     *
+     * @param xmlPath путь к файлу XML
+     * @return список настроек инстансов
+     */
     public static List<InstanceConfig> readConfig(String xmlPath) throws Exception {
         List<InstanceConfig> list = new ArrayList<>();
         File file = new File(xmlPath);
@@ -28,6 +38,9 @@ public class InstancesConfigReader {
         }
         return list;
     }
+    /**
+     * Извлекает текст из указанного дочернего элемента либо возвращает null.
+     */
     private static String get(Element e, String tag) {
         NodeList n = e.getElementsByTagName(tag);
         return n.getLength() == 0 ? null : n.item(0).getTextContent().trim();
