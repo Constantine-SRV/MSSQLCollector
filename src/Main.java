@@ -24,11 +24,10 @@ public class Main {
             AppConfigReaderWriter.writeConfig(appConfig, configFile);
             System.out.println("Default config created: " + configFile);
         }
-        // Читаем списки серверов и запросов из XML-файлов.
-        List<InstanceConfig> servers =
-                InstancesConfigReader.readConfig("InstancesConfig.xml");
-        List<QueryRequest> queries =
-                QueryRequestsReader.read("QueryRequests.xml");
+        // Читаем списки серверов и запросов из .....
+        List<InstanceConfig> servers =InstancesConfigReader.readConfig(appConfig);
+        List<QueryRequest> queries = QueryRequestsReader.read(appConfig);
+
 
         // Запрашиваем у пользователя пароли для тех конфигов,
         // в которых они не указаны.

@@ -3,38 +3,70 @@ package model;
 import org.w3c.dom.*;
 import javax.xml.parsers.*;
 import java.io.File;
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Загружает SQL-запросы из XML-файла.
+ * Универсальный загрузчик QueryRequest-ов (заданий) из MSSQL, Mongo, или локального файла.
  */
-public final class QueryRequestsReader {
-
-    private QueryRequestsReader() { }
+public class QueryRequestsReader {
 
     /**
-     * Читает файл с запросами и формирует список объектов {@link QueryRequest}.
-     *
-     * @param xmlPath путь к XML-файлу
-     * @return список запросов
+     * Загружает список QueryRequest согласно AppConfig.
      */
-    public static List<QueryRequest> read(String xmlPath) throws Exception {
+    public static List<QueryRequest> read(AppConfig appConfig) throws Exception {
+        String type = appConfig.jobsSource.type.trim().toUpperCase();
+        switch (type) {
+            case "MSSQL":
+                return readFromMSSQL(appConfig.jobsSource);
+            case "MONGO":
+                // Заглушка
+                System.out.println("[WARN] MongoDB jobs source is not implemented yet!");
+                return new ArrayList<>();
+            case "LOCALFILE":
+            default:
+                String file = appConfig.jobsSource.fileName.isEmpty()
+                        ? "QueryRequests.xml"
+                        : appConfig.jobsSource.fileName;
+                return readFromLocalFile(file);
+        }
+    }
+
+    /** Читает из MSSQL по JDBC и конфигу SourceConfig (SELECT должен вернуть поля id, queryText) */
+    private static List<QueryRequest> readFromMSSQL(SourceConfig cfg) throws Exception {
+        List<QueryRequest> list = new ArrayList<>();
+        try (Connection con = DriverManager.getConnection(cfg.mssqlConnectionString)) {
+            try (Statement st = con.createStatement();
+                 ResultSet rs = st.executeQuery(cfg.mssqlQuery)) {
+                while (rs.next()) {
+                    String id   = rs.getString("requestId");
+                    String text = rs.getString("queryText");
+                    list.add(new QueryRequest(id, text));
+                }
+            }
+        }
+        return list;
+    }
+
+    /** Читает из локального XML-файла (как раньше) */
+    private static List<QueryRequest> readFromLocalFile(String xmlPath) throws Exception {
         List<QueryRequest> list = new ArrayList<>();
         File file = new File(xmlPath);
-
-        DocumentBuilder db = DocumentBuilderFactory.newInstance()
-                .newDocumentBuilder();
-        Document doc = db.parse(file);
+        if (!file.exists()) {
+            System.out.println("[WARN] QueryRequests file not found: " + xmlPath);
+            return list;
+        }
+        DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();
+        DocumentBuilder b = f.newDocumentBuilder();
+        Document doc = b.parse(file);
 
         NodeList nodes = doc.getElementsByTagName("Query");
         for (int i = 0; i < nodes.getLength(); i++) {
-            Element qEl = (Element) nodes.item(i);
-
-            String id  = qEl.getAttribute("id").trim();
-            String sql = qEl.getTextContent().trim();
-
-            list.add(new QueryRequest(id, sql));
+            Element el = (Element) nodes.item(i);
+            String id = el.getAttribute("id");
+            String text = el.getTextContent().trim();
+            list.add(new QueryRequest(id, text));
         }
         return list;
     }
