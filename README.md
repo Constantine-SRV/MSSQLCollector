@@ -4,15 +4,6 @@
 и сохранения результатов. Настройки задаются в файле `MSSQLCollectorConfig.xml`
 (в репозиторий не попадает, пример приведён ниже).
 
-## Запуск
-1. Скопируйте `MSSQLCollectorConfig.example.xml` в `MSSQLCollectorConfig.xml` и
-   пропишите собственные строки подключения и запросы.
-2. Скомпилируйте исходники с подключением JDBC-драйвера:
-   `javac -cp lib/mssql-jdbc-12.10.1.jre11.jar -d out @sources.txt`.
-3. Запустите программу, указав путь к конфигу (по умолчанию
-   `MSSQLCollectorConfig.xml`):
-   `java -cp "out:lib/mssql-jdbc-12.10.1.jre11.jar" Main`.
-
 ## Формат конфигурационного файла
 Описание основных элементов `MSSQLCollectorConfig`:
 
