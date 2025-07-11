@@ -12,10 +12,15 @@ import java.util.concurrent.Executor;
 
 import static java.util.Objects.requireNonNull;
 
+/**
+ * Задача на выполнение набора запросов для одного инстанса MSSQL.
+ * Используется в {@link Main}: последовательно выполняет запросы и
+ * передаёт результаты в {@link processor.ResponseProcessor}.
+ */
 public record ServerRequest(
         InstanceConfig cfg,
         List<QueryRequest> queries,
-        ResponseProcessor responseProcessor // теперь через конструктор!
+        ResponseProcessor responseProcessor
 ) {
 
     public CompletableFuture<Void> execute(Executor executor) {
