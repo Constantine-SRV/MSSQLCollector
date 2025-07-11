@@ -1,10 +1,19 @@
 package model;
 
+/**
+ * Основные настройки приложения. Содержит информацию об источниках
+ * данных, местах сохранения результатов и размере пула потоков.
+ */
 public class AppConfig {
+    /** Размер пула потоков для выполнения запросов. */
     public int threadPoolSize = 32;
+    /** Источник списка серверов. */
     public SourceConfig serversSource = new SourceConfig();
+    /** Источник списка SQL-заданий. */
     public SourceConfig jobsSource = new SourceConfig();
+    /** Куда сохранять результаты выполнения запросов. */
     public DestinationConfig resultsDestination = new DestinationConfig();
+    /** Куда писать логи приложения. */
     public DestinationConfig logsDestination = new DestinationConfig();
 
     // Можно добавить геттеры для имён файлов
