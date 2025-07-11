@@ -12,20 +12,12 @@ import java.util.concurrent.Executor;
 
 import static java.util.Objects.requireNonNull;
 
-/**
- * Выполняет список {@link QueryRequest} для одного MSSQL-сервера.
- * Создаётся в {@link Main} для каждого элемента конфигурации.
- */
-public record ServerRequest(InstanceConfig cfg,
-                            List<QueryRequest> queries) {
+public record ServerRequest(
+        InstanceConfig cfg,
+        List<QueryRequest> queries,
+        ResponseProcessor responseProcessor // теперь через конструктор!
+) {
 
-    /**
-     * Асинхронно подключается к серверу и выполняет все запросы
-     * последовательно. Вызывается из {@link Main} при обработке
-     * очередного сервера.
-     *
-     * @return future, завершающуюся после выполнения последнего запроса
-     */
     public CompletableFuture<Void> execute(Executor executor) {
         String url = buildUrl(cfg);
         System.out.printf("[START] CI=%s url=%s%n", cfg.ci, url);
@@ -35,15 +27,8 @@ public record ServerRequest(InstanceConfig cfg,
                         .whenComplete((v, ex) -> closeSilently(conn)));
     }
 
-    // ───────────────────────────────────────────────────────────
-
-    /**
-     * Запускает список запросов по цепочке, один за другим, используя
-     * переданный пул потоков. Вызывается из {@link #execute(Executor)}.
-     */
     private CompletableFuture<Void> runSequentially(Connection conn, Executor executor) {
         CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
-
         for (QueryRequest qr : queries) {
             chain = chain.thenCompose(v ->
                     CompletableFuture.runAsync(() -> execOne(conn, qr), executor));
@@ -51,16 +36,11 @@ public record ServerRequest(InstanceConfig cfg,
         return chain;
     }
 
-    /**
-     * Выполняет один запрос и передаёт его результат в
-     * {@link ResponseProcessor}. Используется методом
-     * {@link #runSequentially(Connection, Executor)}.
-     */
     private void execOne(Connection conn, QueryRequest qr) {
         try (var st = conn.createStatement();
              var rs = st.executeQuery(qr.queryText())) {
 
-            ResponseProcessor.handle(cfg.ci, qr.requestId(), rs);
+            responseProcessor.handle(cfg.ci, qr.requestId(), rs);
 
         } catch (SQLException ex) {
             System.err.printf("[CI=%s][ReqID=%s] SQL-ERROR: %s%n",
@@ -71,12 +51,6 @@ public record ServerRequest(InstanceConfig cfg,
         }
     }
 
-    // ───────────────────────────────────────────────────────────
-
-    /**
-     * Формирует строку подключения JDBC для указанного инстанса.
-     * Используется в {@link #execute(Executor)}.
-     */
     private static String buildUrl(InstanceConfig ic) {
         StringBuilder sb = new StringBuilder("jdbc:sqlserver://")
                 .append(requireNonNull(ic.instanceName));
@@ -85,10 +59,6 @@ public record ServerRequest(InstanceConfig cfg,
         return sb.toString();
     }
 
-    /**
-     * Закрывает соединение, игнорируя возможные исключения. Применяется при
-     * завершении работы {@link #execute(Executor)}.
-     */
     private static void closeSilently(Connection c) {
         try { if (c != null && !c.isClosed()) c.close(); } catch (Exception ignored) {}
     }
