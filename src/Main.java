@@ -16,6 +16,14 @@ public class Main {
      */
     public static void main(String[] args) throws Exception {
 
+        String configFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig.xml";
+        AppConfig appConfig = AppConfigReaderWriter.readConfig(configFile);
+        if (appConfig == null) {
+            // Если файла нет — создаём с дефолтными значениями и читаем снова
+            appConfig = new AppConfig();
+            AppConfigReaderWriter.writeConfig(appConfig, configFile);
+            System.out.println("Default config created: " + configFile);
+        }
         // Читаем списки серверов и запросов из XML-файлов.
         List<InstanceConfig> servers =
                 InstancesConfigReader.readConfig("InstancesConfig.xml");
