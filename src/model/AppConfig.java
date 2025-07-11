@@ -1,6 +1,7 @@
 package model;
 
 public class AppConfig {
+    public int threadPoolSize = 32;
     public SourceConfig serversSource = new SourceConfig();
     public SourceConfig jobsSource = new SourceConfig();
     public DestinationConfig resultsDestination = new DestinationConfig();

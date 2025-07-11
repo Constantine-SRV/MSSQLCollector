@@ -24,6 +24,17 @@ public class AppConfigReaderWriter {
         Document doc = db.parse(file);
 
         AppConfig cfg = new AppConfig();
+
+        // --- Чтение ThreadPoolSize, если есть ---
+        NodeList poolNodes = doc.getElementsByTagName("ThreadPoolSize");
+        if (poolNodes.getLength() > 0) {
+            try {
+                cfg.threadPoolSize = Integer.parseInt(poolNodes.item(0).getTextContent().trim());
+            } catch (NumberFormatException e) {
+                cfg.threadPoolSize = 8; // дефолт
+            }
+        }
+
         cfg.serversSource      = readSource(doc, "ServersSource");
         cfg.jobsSource         = readSource(doc, "JobsSource");
         cfg.resultsDestination = readDestination(doc, "ResultsDestination");
@@ -42,6 +53,9 @@ public class AppConfigReaderWriter {
         // Root element
         Element root = doc.createElement("MSSQLCollectorConfig");
         doc.appendChild(root);
+
+        // ThreadPoolSize первым (или где хочешь)
+        root.appendChild(makeElem(doc, "ThreadPoolSize", String.valueOf(cfg.threadPoolSize)));
 
         // Comment at the top
         root.appendChild(doc.createComment(
@@ -130,7 +144,7 @@ public class AppConfigReaderWriter {
 
     private static Element makeElem(Document doc, String tag, String val) {
         Element e = doc.createElement(tag);
-        // Если строка пустая — устанавливаем пробел, чтобы тег был раскрытым
+        // Если строка пустая — ставим прочерк, чтобы тег был раскрытым
         e.setTextContent(val == null || val.isEmpty() ? "-" : val);
         return e;
     }

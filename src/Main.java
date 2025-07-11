@@ -34,7 +34,8 @@ public class Main {
         InstanceConfigEnreacher.enrichWithPasswords(servers);
         long t0 = System.nanoTime(); // ← стартуем секундомер
         // Пул потоков для параллельной работы
-        ExecutorService pool = Executors.newFixedThreadPool(Math.min(servers.size(), 16));
+        int threadCount = appConfig.threadPoolSize > 0 ? appConfig.threadPoolSize : 32;
+        ExecutorService pool = Executors.newFixedThreadPool(Math.min(servers.size(), threadCount));
 
         // Для каждого сервера создаём ServerRequest с respProcessor
         CompletableFuture.allOf(
