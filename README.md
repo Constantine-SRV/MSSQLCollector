@@ -57,7 +57,9 @@
     <ResultsDestination>
         <Type>MSSQL</Type>
         <MSSQLConnectionString>jdbc:sqlserver://HOST:PORT;encrypt=false;trustServerCertificate=true;user=USER;password=PASS</MSSQLConnectionString>
-        <MSSQLQuery>admintools.dbo.usp_resultProcessor</MSSQLQuery>
+        <MSSQLQuery>
+            INSERT INTO adminTools.dbo.ResultProcessorLog (ci, reqId, resultXml) VALUES (?, ?, ?)
+        </MSSQLQuery>
         <MongoConnectionString>-</MongoConnectionString>
         <MongoCollectionName>-</MongoCollectionName>
         <DirectoryPath>-</DirectoryPath>

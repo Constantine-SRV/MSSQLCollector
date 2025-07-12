@@ -1,5 +1,6 @@
 package model;
 
+import db.MssqlConnectionStringEnricher;
 import org.w3c.dom.*;
 import javax.xml.parsers.*;
 import javax.xml.transform.*;
@@ -9,6 +10,7 @@ import java.io.File;
 
 /**
  * Чтение/запись основного конфигурационного файла приложения MSSQLCollector.
+ * Строки подключения к MSSQL автоматически обогащаются полезными параметрами.
  */
 public class AppConfigReaderWriter {
 
@@ -89,12 +91,19 @@ public class AppConfigReaderWriter {
 
     // ──────────────────────────────────────────────────────────────
 
+    /**
+     * Читает блок SourceConfig из XML и обогащает строку подключения MSSQL.
+     */
     private static SourceConfig readSource(Document doc, String tag) {
         SourceConfig sc = new SourceConfig();
         Node node = doc.getElementsByTagName(tag).item(0);
         if (node != null && node instanceof Element el) {
             sc.type                  = getText(el, "Type");
-            sc.mssqlConnectionString = getText(el, "MSSQLConnectionString");
+            // enrich сразу при чтении!
+            String rawConn = getText(el, "MSSQLConnectionString");
+            sc.mssqlConnectionString = (rawConn == null || rawConn.equals("-") || rawConn.isBlank())
+                    ? rawConn
+                    : db.MssqlConnectionStringEnricher.enrich(rawConn);
             sc.mssqlQuery            = getText(el, "MSSQLQuery");
             sc.mongoConnectionString = getText(el, "MongoConnectionString");
             sc.mongoCollectionName   = getText(el, "MongoCollectionName");
@@ -103,12 +112,18 @@ public class AppConfigReaderWriter {
         return sc;
     }
 
+    /**
+     * Читает блок DestinationConfig из XML и обогащает строку подключения MSSQL.
+     */
     private static DestinationConfig readDestination(Document doc, String tag) {
         DestinationConfig dc = new DestinationConfig();
         Node node = doc.getElementsByTagName(tag).item(0);
         if (node != null && node instanceof Element el) {
             dc.type                  = getText(el, "Type");
-            dc.mssqlConnectionString = getText(el, "MSSQLConnectionString");
+            String rawConn = getText(el, "MSSQLConnectionString");
+            dc.mssqlConnectionString = (rawConn == null || rawConn.equals("-") || rawConn.isBlank())
+                    ? rawConn
+                    : db.MssqlConnectionStringEnricher.enrich(rawConn);
             dc.mssqlQuery            = getText(el, "MSSQLQuery");
             dc.mongoConnectionString = getText(el, "MongoConnectionString");
             dc.mongoCollectionName   = getText(el, "MongoCollectionName");
@@ -117,6 +132,29 @@ public class AppConfigReaderWriter {
         return dc;
     }
 
+    /**
+     * Создаёт XML-элемент с заданным значением.
+     * Если строка пустая — ставим прочерк, чтобы тег был раскрытым
+     */
+    private static Element makeElem(Document doc, String tag, String val) {
+        Element e = doc.createElement(tag);
+        e.setTextContent(val == null || val.isEmpty() ? "-" : val);
+        return e;
+    }
+
+    /**
+     * Получает текстовое значение из указанного дочернего элемента.
+     * Если тег не найден — возвращает пустую строку.
+     */
+    private static String getText(Element el, String tag) {
+        NodeList nl = el.getElementsByTagName(tag);
+        if (nl.getLength() == 0) return "";
+        return nl.item(0).getTextContent().trim();
+    }
+
+    /**
+     * Генерирует блок SourceConfig для сохранения в XML
+     */
     private static Element writeSource(Document doc, String tag, SourceConfig sc) {
         Element el = doc.createElement(tag);
         // Use MSSQL as default for sources if not set
@@ -129,6 +167,9 @@ public class AppConfigReaderWriter {
         return el;
     }
 
+    /**
+     * Генерирует блок DestinationConfig для сохранения в XML
+     */
     private static Element writeDestination(Document doc, String tag, DestinationConfig dc) {
         Element el = doc.createElement(tag);
         // Use LocalFile/Console as default for destinations if not set
@@ -140,18 +181,5 @@ public class AppConfigReaderWriter {
         el.appendChild(makeElem(doc, "MongoCollectionName", dc.mongoCollectionName));
         el.appendChild(makeElem(doc, "DirectoryPath", dc.directoryPath));
         return el;
-    }
-
-    private static Element makeElem(Document doc, String tag, String val) {
-        Element e = doc.createElement(tag);
-        // Если строка пустая — ставим прочерк, чтобы тег был раскрытым
-        e.setTextContent(val == null || val.isEmpty() ? "-" : val);
-        return e;
-    }
-
-    private static String getText(Element el, String tag) {
-        NodeList nl = el.getElementsByTagName(tag);
-        if (nl.getLength() == 0) return "";
-        return nl.item(0).getTextContent().trim();
     }
 }

@@ -103,23 +103,36 @@ public class ResponseProcessor {
             }
             xml.append("</Result>\n");
 
-            // Отладочный вывод (иногда полезно увидеть длину XML)
-            System.out.printf("[DEBUG] MSSQL Call: SP=%s, ci=%s, reqId=%s, rows=%d, xml-len=%d\n",
+            // Отладочный вывод
+            System.out.printf("[DEBUG] MSSQL Call: SQL=%s, ci=%s, reqId=%s, rows=%d, xml-len=%d\n",
                     destCfg.mssqlQuery, ci, reqId, rowCnt, xml.length());
 
             try (Connection conn = DriverManager.getConnection(destCfg.mssqlConnectionString)) {
-                try (CallableStatement cs = conn.prepareCall(
-                        "{call " + destCfg.mssqlQuery + " (?, ?, ?)}")) {
-                    cs.setString(1, ci);
-                    cs.setString(2, reqId);
-                    cs.setString(3, xml.toString());
-                    cs.execute();
-                    System.out.printf("[RESP] %s_%s -> MSSQL SP OK (%d rows)%n", ci, reqId, rowCnt);
+                // Универсальное определение: SP или SQL
+                String sql = destCfg.mssqlQuery.trim();
+                boolean isSP = sql.matches("(?i)^([\\[]?\\w+[\\]]?\\.)?[\\[]?\\w+[\\]]?$"); // примитивно: одно слово или schema.sp
+
+                if (isSP) {
+                    try (CallableStatement cs = conn.prepareCall("{call " + sql + " (?, ?, ?)}")) {
+                        cs.setString(1, ci);
+                        cs.setString(2, reqId);
+                        cs.setString(3, xml.toString());
+                        cs.execute();
+                    }
+                } else {
+                    // считаем, что в sql три параметра типа ?, ?, ?
+                    try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                        ps.setString(1, ci);
+                        ps.setString(2, reqId);
+                        ps.setString(3, xml.toString());
+                        ps.execute();
+                    }
                 }
+                System.out.printf("[RESP] %s_%s -> MSSQL OK (%d rows)%n", ci, reqId, rowCnt);
             }
         } catch (SQLException ex) {
             System.err.printf("[CI=%s][ReqID=%s] SQL-ERROR: %s%n", ci, reqId, ex.getMessage());
-            printSqlErrorChain(ex); // Показывает всю цепочку ошибок SQL Server
+            printSqlErrorChain(ex);
         } catch (Exception ex) {
             System.err.printf("[CI=%s][ReqID=%s] ERROR: %s%n", ci, reqId, ex.getMessage());
             ex.printStackTrace();

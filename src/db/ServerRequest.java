@@ -61,7 +61,12 @@ public record ServerRequest(
                 .append(requireNonNull(ic.instanceName));
         if (ic.port != null) sb.append(':').append(ic.port);
         sb.append(";encrypt=false;trustServerCertificate=true");
-        return sb.toString();
+        String baseConnStr = sb.toString();
+
+        // Вызовите энричер, чтобы добавить encrypt, trustServerCertificate, applicationName и т.д.
+        // Например, если у вас класс: db.MssqlConnectionStringEnricher
+        String enriched = db.MssqlConnectionStringEnricher.enrich(baseConnStr);
+        return enriched;
     }
 
     private static void closeSilently(Connection c) {
