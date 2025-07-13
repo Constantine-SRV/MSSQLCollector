@@ -1,30 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <Instances>
     <Instance>
-        <CI>srv-01</CI>
+        <CI>CI00002</CI>
         <InstanceName>sqlupdate2019</InstanceName>
-        <Port>1433</Port>
+        <Port>0</Port>
         <UserName>userJava</UserName>
-        <Password></Password>
+        <Password/>
     </Instance>
     <Instance>
-        <CI>srv-02</CI>
+        <CI>CI00003</CI>
         <InstanceName>sqlupdate2019</InstanceName>
-        <Port>1433</Port>
+        <Port>0</Port>
         <UserName>userJava</UserName>
-        <Password></Password>
+        <Password/>
     </Instance>
     <Instance>
-        <CI>srv-03</CI>
+        <CI>CI00004</CI>
         <InstanceName>sqlupdate2019</InstanceName>
-        <Port>1433</Port>
+        <Port>0</Port>
         <UserName>userJava</UserName>
-        <Password></Password>
+        <Password/>
     </Instance>
     <Instance>
-        <CI>srv-04</CI>
+        <CI>CI00005</CI>
         <InstanceName>sqlupdate2019</InstanceName>
-        <Port>1433</Port>
+        <Port>0</Port>
         <UserName>userJava</UserName>
-        <Password></Password>
+        <Password/>
+    </Instance>
+    <Instance>
+        <CI>CI00011</CI>
+        <InstanceName>sqlupdate2019</InstanceName>
+        <Port>0</Port>
+        <UserName>userJava</UserName>
+        <Password/>
     </Instance>
 </Instances>

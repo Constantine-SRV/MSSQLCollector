@@ -2,52 +2,70 @@ import db.ServerRequest;
 import model.*;
 import processor.ResponseProcessor;
 
-import java.util.*;
+import java.util.List;
 import java.util.concurrent.*;
 
-/**
- * Главный класс приложения.
- */
+/** Точка входа. */
 public class Main {
 
     public static void main(String[] args) throws Exception {
 
-
-
-        String configFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig.xml";
-        AppConfig appConfig = AppConfigReaderWriter.readConfig(configFile);
-        if (appConfig == null) {
-            // Если файла нет — создаём с дефолтными значениями и читаем снова
-            appConfig = new AppConfig();
-            AppConfigReaderWriter.writeConfig(appConfig, configFile);
-            System.out.println("Default config created: " + configFile);
+        String cfgFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig.xml";
+        AppConfig cfg = AppConfigReader.read(cfgFile);
+        if (cfg == null) {
+            cfg = new AppConfig();                  // дефолт
+            AppConfigWriter.write(cfg, cfgFile);
+            System.out.println("Default config created: " + cfgFile);
         }
 
-        // Чтение серверов и запросов
-        List<InstanceConfig> servers = InstancesConfigReader.readConfig(appConfig);
-        List<QueryRequest> queries = QueryRequestsReader.read(appConfig);
+        switch (cfg.taskName.toUpperCase()) {
+            case "SAVE_CONFIGS" -> runSaveConfigs(cfg);
+            case "PROCESS_XML_RESULT" -> {
+                System.out.println("Task PROCESS_XML_RESULT not implemented yet.");
+            }
+            default -> runFullPipeline(cfg);        // RUN (по умолчанию)
+        }
+    }
 
-        // Универсальный обработчик результатов (через конфиг)
-        ResponseProcessor respProcessor = new ResponseProcessor(appConfig.resultsDestination);
+    /* ========== режим RUN (как раньше) ========================= */
+    private static void runFullPipeline(AppConfig cfg) throws Exception {
 
-        // Запрашиваем у пользователя пароли для тех конфигов, в которых они не указаны.
+        List<InstanceConfig> servers = InstancesConfigReader.readConfig(cfg);
+        List<QueryRequest>   queries = QueryRequestsReader.read(cfg);
+
+        // пароли + enrich строк подключения
         InstanceConfigEnreacher.enrichWithPasswords(servers);
-        long t0 = System.nanoTime(); // ← стартуем секундомер
-        // Пул потоков для параллельной работы
-        int threadCount = appConfig.threadPoolSize > 0 ? appConfig.threadPoolSize : 32;
-        ExecutorService pool = Executors.newFixedThreadPool(Math.min(servers.size(), threadCount));
 
-        // Для каждого сервера создаём ServerRequest с respProcessor
+        ResponseProcessor resp = new ResponseProcessor(cfg.resultsDestination);
+
+        ExecutorService pool = Executors.newFixedThreadPool(
+                Math.min(servers.size(), cfg.threadPoolSize));
+
         CompletableFuture.allOf(
                 servers.stream()
-                        .map(cfg -> new ServerRequest(cfg, queries, respProcessor).execute(pool))
+                        .map(s -> new ServerRequest(s, queries, resp).execute(pool))
                         .toArray(CompletableFuture[]::new)
         ).join();
 
         pool.shutdown();
+    }
 
-        // ==== Выводим время выполнения ====
-        long elapsedMs = (System.nanoTime() - t0) / 1_000_000;
-        System.out.printf("Done. Elapsed: %d ms (%.2f s)%n", elapsedMs, elapsedMs / 1000.0);
+    /* ========== режим SAVE_CONFIGS ============================= */
+    private static void runSaveConfigs(AppConfig cfg) throws Exception {
+
+        List<InstanceConfig> servers = InstancesConfigReader.readConfig(cfg);
+        List<QueryRequest>   queries = QueryRequestsReader.read(cfg);
+
+        // спросим пароли (чтобы в файле они уже были заполнены)
+        InstanceConfigEnreacher.enrichWithPasswords(servers);
+
+        String instFile = cfg.getServersFileName();
+        String qFile    = cfg.getJobsFileName();
+
+        InstancesConfigWriter.write(servers, instFile);
+        QueryRequestsWriter.write(queries, qFile);
+
+        System.out.printf("Configs saved: %s (%d servers), %s (%d queries)%n",
+                instFile, servers.size(), qFile, queries.size());
     }
 }

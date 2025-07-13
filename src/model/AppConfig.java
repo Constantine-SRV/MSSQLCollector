@@ -5,6 +5,9 @@ package model;
  * данных, местах сохранения результатов и размере пула потоков.
  */
 public class AppConfig {
+
+    /** RUN | SAVE_CONFIGS | PROCESS_XML_RESULT */
+    public String taskName = "RUN";
     /** Размер пула потоков для выполнения запросов. */
     public int threadPoolSize = 32;
     /** Источник списка серверов. */

@@ -1,16 +1,21 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <MSSQLCollectorConfig>
     <!--
-      MSSQLCollector configuration file
-      Type possible values: MSSQL | MONGO | LocalFile | Console
-      Leave parameters empty to use default behavior
-    -->
+  MSSQLCollector configuration file
+  Type possible values: MSSQL | MONGO | LocalFile | Console
+  Leave parameters empty to use default behavior
+-->
+    <!-- Task of the run: RUN | SAVE_CONFIGS | PROCESS_XML_RESULT -->
+    <TaskName>SAVE_CONFIGS</TaskName>
+
+    <!-- Thread-pool size (default 8) -->
     <ThreadPoolSize>16</ThreadPoolSize>
+
     <!-- Source of servers list -->
     <ServersSource>
         <Type>MSSQL</Type>
-        <MSSQLConnectionString>jdbc:sqlserver://HOST:PORT;encrypt=false;trustServerCertificate=true;user=USER;password=PASS</MSSQLConnectionString>
-        <MSSQLQuery>SELECT * FROM [adminTools].[dbo].[tbl_servers_list]</MSSQLQuery>
+        <MSSQLConnectionString>jdbc:sqlserver://sqlupdate2019;encrypt=false;trustServerCertificate=true;user=;password=</MSSQLConnectionString>
+        <MSSQLQuery>SELECT *  FROM [adminTools].[dbo].[tbl_servers_list]</MSSQLQuery>
         <MongoConnectionString>-</MongoConnectionString>
         <MongoCollectionName>-</MongoCollectionName>
         <FileName>InstancesConfig.xml</FileName>
@@ -18,17 +23,24 @@
     <!-- Source of jobs list -->
     <JobsSource>
         <Type>MSSQL</Type>
-        <MSSQLConnectionString>jdbc:sqlserver://HOST:PORT;encrypt=false;trustServerCertificate=true;user=USER;password=PASS</MSSQLConnectionString>
-        <MSSQLQuery>SELECT * FROM [adminTools].[dbo].[tbl_query_list]</MSSQLQuery>
+        <MSSQLConnectionString>
+            jdbc:sqlserver://sqlupdate2019.p4.local;
+            encrypt=false;
+            trustServerCertificate=true;
+            integratedSecurity=true;
+        </MSSQLConnectionString>
+        <MSSQLQuery>SELECT *  FROM [adminTools].[dbo].[tbl_query_list]</MSSQLQuery>
         <MongoConnectionString>-</MongoConnectionString>
         <MongoCollectionName>-</MongoCollectionName>
-        <FileName>QueryRequests.xml</FileName>
+        <FileName>RequestsConfig.xml</FileName>
     </JobsSource>
     <!-- Destination for results -->
     <ResultsDestination>
         <Type>MSSQL</Type>
-        <MSSQLConnectionString>jdbc:sqlserver://HOST:PORT;encrypt=false;trustServerCertificate=true;user=USER;password=PASS</MSSQLConnectionString>
-        <MSSQLQuery>admintools.dbo.usp_resultProcessor</MSSQLQuery>
+        <MSSQLConnectionString>jdbc:sqlserver://sqlupdate2019:1433;encrypt=false;trustServerCertificate=true;user=;password=</MSSQLConnectionString>
+        <MSSQLQuery>
+            INSERT INTO adminTools.dbo.ResultProcessorLog (ci, reqId, resultXml) VALUES (?, ?, ?)
+        </MSSQLQuery>
         <MongoConnectionString>-</MongoConnectionString>
         <MongoCollectionName>-</MongoCollectionName>
         <DirectoryPath>-</DirectoryPath>
