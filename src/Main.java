@@ -1,4 +1,5 @@
 import db.ServerRequest;
+import logging.LogService;
 import model.*;
 import processor.ResponseProcessor;
 
@@ -65,7 +66,7 @@ public class Main {
         InstancesConfigWriter.write(servers, instFile);
         QueryRequestsWriter.write(queries, qFile);
 
-        System.out.printf("Configs saved: %s (%d servers), %s (%d queries)%n",
+        LogService.printf("Configs saved: %s (%d servers), %s (%d queries)%n",
                 instFile, servers.size(), qFile, queries.size());
     }
 }

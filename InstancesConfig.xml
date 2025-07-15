@@ -5,34 +5,34 @@
         <InstanceName>sqlupdate2019</InstanceName>
         <Port>0</Port>
         <UserName>userJava</UserName>
-        <Password/>
+        <Password>qaz123</Password>
     </Instance>
     <Instance>
         <CI>CI00003</CI>
         <InstanceName>sqlupdate2019</InstanceName>
         <Port>0</Port>
         <UserName>userJava</UserName>
-        <Password/>
+        <Password>qaz123</Password>
     </Instance>
     <Instance>
         <CI>CI00004</CI>
         <InstanceName>sqlupdate2019</InstanceName>
         <Port>0</Port>
         <UserName>userJava</UserName>
-        <Password/>
+        <Password>qaz123</Password>
     </Instance>
     <Instance>
         <CI>CI00005</CI>
         <InstanceName>sqlupdate2019</InstanceName>
         <Port>0</Port>
         <UserName>userJava</UserName>
-        <Password/>
+        <Password>qaz123</Password>
     </Instance>
     <Instance>
         <CI>CI00011</CI>
         <InstanceName>sqlupdate2019</InstanceName>
         <Port>0</Port>
         <UserName>userJava</UserName>
-        <Password/>
+        <Password>qaz123</Password>
     </Instance>
 </Instances>
