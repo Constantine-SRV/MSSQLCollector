@@ -1,6 +1,7 @@
 package processor;
 
 import model.DestinationConfig;
+import logging.LogService;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -35,7 +36,7 @@ public class ResponseProcessor {
                 saveToMSSQL(ci, reqId, rs);
                 break;
             case "MONGO":
-                System.out.printf("[RESP] MONGO write not implemented for %s_%s%n", ci, reqId);
+                LogService.printf("[RESP] MONGO write not implemented for %s_%s%n", ci, reqId);
                 break;
             case "LOCALFILE":
             default:
@@ -71,7 +72,7 @@ public class ResponseProcessor {
                 rowCnt++;
             }
             w.write("</Result>\n");
-            System.out.printf("[RESP] %s_%s (%d rows) -> %s%n", ci, reqId, rowCnt, outFile.getName());
+            LogService.printf("[RESP] %s_%s (%d rows) -> %s%n", ci, reqId, rowCnt, outFile.getName());
         }
     }
 
@@ -104,7 +105,7 @@ public class ResponseProcessor {
             xml.append("</Result>\n");
 
             // Отладочный вывод
-            System.out.printf("[DEBUG] MSSQL Call: SQL=%s, ci=%s, reqId=%s, rows=%d, xml-len=%d\n",
+            LogService.printf("[DEBUG] MSSQL Call: SQL=%s, ci=%s, reqId=%s, rows=%d, xml-len=%d\n",
                     destCfg.mssqlQuery, ci, reqId, rowCnt, xml.length());
 
             try (Connection conn = DriverManager.getConnection(destCfg.mssqlConnectionString)) {
@@ -128,13 +129,13 @@ public class ResponseProcessor {
                         ps.execute();
                     }
                 }
-                System.out.printf("[RESP] %s_%s -> MSSQL OK (%d rows)%n", ci, reqId, rowCnt);
+                LogService.printf("[RESP] %s_%s -> MSSQL OK (%d rows)%n", ci, reqId, rowCnt);
             }
         } catch (SQLException ex) {
-            System.err.printf("[CI=%s][ReqID=%s] SQL-ERROR: %s%n", ci, reqId, ex.getMessage());
+            LogService.errorf("[CI=%s][ReqID=%s] SQL-ERROR: %s%n", ci, reqId, ex.getMessage());
             printSqlErrorChain(ex);
         } catch (Exception ex) {
-            System.err.printf("[CI=%s][ReqID=%s] ERROR: %s%n", ci, reqId, ex.getMessage());
+            LogService.errorf("[CI=%s][ReqID=%s] ERROR: %s%n", ci, reqId, ex.getMessage());
             ex.printStackTrace();
         }
     }
@@ -146,7 +147,7 @@ public class ResponseProcessor {
     private static void printSqlErrorChain(SQLException ex) {
         SQLException next = ex;
         while (next != null) {
-            System.err.println("[SQL-ERROR] code: " + next.getErrorCode() +
+            LogService.errorln("[SQL-ERROR] code: " + next.getErrorCode() +
                     ", state: " + next.getSQLState() +
                     ", message: " + next.getMessage());
             next = next.getNextException();

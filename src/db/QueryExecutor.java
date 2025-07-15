@@ -3,6 +3,7 @@ package db;
 import java.sql.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import logging.LogService;
 
 /**
  * Вспомогательные методы для выполнения SELECT-запросов.
@@ -31,7 +32,7 @@ public final class QueryExecutor {
                         row.append(rs.getString(i))
                                 .append(i < cols ? " | " : "");
                     }
-                    System.out.println(row);
+                    LogService.println(row.toString());
                 }
             } catch (Exception ex) {
                 throw new RuntimeException("Query failed", ex);

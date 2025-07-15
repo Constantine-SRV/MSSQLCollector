@@ -6,6 +6,7 @@ import java.io.File;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+import logging.LogService;
 
 /**
  * Универсальный загрузчик конфигурации MSSQL-инстансов.
@@ -25,7 +26,7 @@ public class InstancesConfigReader {
                 return readFromMSSQL(appConfig.serversSource);
             case "MONGO":
                 // Заглушка: возвращает пустой список и пишет в консоль
-                System.out.println("[WARN] MongoDB sources are not implemented yet!");
+                LogService.println("[WARN] MongoDB sources are not implemented yet!");
                 return new ArrayList<>();
             case "LOCALFILE":
             default:
@@ -42,7 +43,7 @@ public class InstancesConfigReader {
         List<InstanceConfig> list = new ArrayList<>();
         File file = new File(xmlPath);
         if (!file.exists()) {
-            System.out.println("[WARN] Config file not found: " + xmlPath);
+            LogService.println("[WARN] Config file not found: " + xmlPath);
             return list;
         }
         DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();
