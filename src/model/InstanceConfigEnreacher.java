@@ -2,6 +2,7 @@ package model;
 
 import java.io.Console;
 import java.util.*;
+import logging.LogService;
 
 /**
  * Запрашивает у пользователя пароль для всех учёток, у которых поле
@@ -41,7 +42,7 @@ public final class InstanceConfigEnreacher {
                 char[] ch = console.readPassword("Type password for account %s: ", account);
                 pwd = new String(ch);
             } else { // IDE/redirected input — fallback
-                System.out.printf("Type password for account %s: ", account);
+                LogService.printf("Type password for account %s: ", account);
                 pwd = scanner.nextLine();
             }
             // применяем ко всем конфигам этого userName

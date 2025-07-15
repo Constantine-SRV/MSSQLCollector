@@ -3,6 +3,7 @@ package db;
 import model.InstanceConfig;
 import model.QueryRequest;
 import processor.ResponseProcessor;
+import logging.LogService;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -25,7 +26,7 @@ public record ServerRequest(
 
     public CompletableFuture<Void> execute(Executor executor) {
         String url = buildUrl(cfg);
-        System.out.printf("[START] CI=%s url=%s%n", cfg.ci, url);
+        LogService.printf("[START] CI=%s url=%s%n", cfg.ci, url);
 
         return DbConnector.getConnectionAsync(url, cfg.userName, cfg.password)
                 .thenCompose(conn -> runSequentially(conn, executor)
@@ -48,10 +49,10 @@ public record ServerRequest(
             responseProcessor.handle(cfg.ci, qr.requestId(), rs);
 
         } catch (SQLException ex) {
-            System.err.printf("[CI=%s][ReqID=%s] SQL-ERROR: %s%n",
+            LogService.errorf("[CI=%s][ReqID=%s] SQL-ERROR: %s%n",
                     cfg.ci, qr.requestId(), ex.getMessage());
         } catch (Exception ex) {
-            System.err.printf("[CI=%s][ReqID=%s] ERROR: %s%n",
+            LogService.errorf("[CI=%s][ReqID=%s] ERROR: %s%n",
                     cfg.ci, qr.requestId(), ex.getMessage());
         }
     }

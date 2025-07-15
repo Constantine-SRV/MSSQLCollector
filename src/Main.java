@@ -16,13 +16,13 @@ public class Main {
         if (cfg == null) {
             cfg = new AppConfig();                  // дефолт
             AppConfigWriter.write(cfg, cfgFile);
-            System.out.println("Default config created: " + cfgFile);
+            LogService.println("Default config created: " + cfgFile);
         }
 
         switch (cfg.taskName.toUpperCase()) {
             case "SAVE_CONFIGS" -> runSaveConfigs(cfg);
             case "PROCESS_XML_RESULT" -> {
-                System.out.println("Task PROCESS_XML_RESULT not implemented yet.");
+                LogService.println("Task PROCESS_XML_RESULT not implemented yet.");
             }
             default -> runFullPipeline(cfg);        // RUN (по умолчанию)
         }

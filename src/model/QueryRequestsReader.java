@@ -6,6 +6,7 @@ import java.io.File;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+import logging.LogService;
 
 /**
  * Универсальный загрузчик QueryRequest-ов (заданий) из MSSQL, Mongo, или локального файла.
@@ -22,7 +23,7 @@ public class QueryRequestsReader {
                 return readFromMSSQL(appConfig.jobsSource);
             case "MONGO":
                 // Заглушка
-                System.out.println("[WARN] MongoDB jobs source is not implemented yet!");
+                LogService.println("[WARN] MongoDB jobs source is not implemented yet!");
                 return new ArrayList<>();
             case "LOCALFILE":
             default:
@@ -54,7 +55,7 @@ public class QueryRequestsReader {
         List<QueryRequest> list = new ArrayList<>();
         File file = new File(xmlPath);
         if (!file.exists()) {
-            System.out.println("[WARN] QueryRequests file not found: " + xmlPath);
+            LogService.println("[WARN] QueryRequests file not found: " + xmlPath);
             return list;
         }
         DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();
