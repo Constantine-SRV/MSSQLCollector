@@ -49,14 +49,19 @@ public class ResponseProcessor {
      */
     private void saveToLocalFile(String ci, String reqId, ResultSet rs) throws SQLException, IOException {
         Path outDir = Paths.get(outDirName);
-        if (!Files.exists(outDir)) Files.createDirectory(outDir);
+        try {
+            if (!Files.exists(outDir)) Files.createDirectory(outDir);
+        } catch (IOException ex) {
+            LogService.errorf("[ERROR] Не удалось создать каталог %s: %s%n", outDirName, ex.getMessage());
+            throw ex; // Или return, если не критично
+        }
 
         File outFile = outDir.resolve(ci + "_" + reqId + ".xml").toFile();
+        // Обернём запись в try/catch для перехвата любых IO ошибок (например, антивирус)
         try (BufferedWriter w = Files.newBufferedWriter(outFile.toPath(), StandardCharsets.UTF_8)) {
             ResultSetMetaData md = rs.getMetaData();
             int cols = md.getColumnCount();
 
-            // Декларация только для файла!
             w.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Result>\n");
             int rowCnt = 0;
             while (rs.next()) {
@@ -73,6 +78,11 @@ public class ResponseProcessor {
             }
             w.write("</Result>\n");
             LogService.printf("[RESP] %s_%s (%d rows) -> %s%n", ci, reqId, rowCnt, outFile.getName());
+        } catch (IOException ex) {
+            LogService.errorf("[ERROR] Ошибка записи файла %s: %s%n", outFile.getAbsolutePath(), ex.getMessage());
+            ex.printStackTrace();
+            // Можно повторить попытку записи или просто прокинуть ошибку выше
+            // throw ex; // если критично
         }
     }
 

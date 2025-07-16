@@ -2,31 +2,35 @@ package model;
 
 import java.io.Console;
 import java.util.*;
-import logging.LogService;
 
 /**
- * Запрашивает у пользователя пароль для всех учёток, у которых поле
- * {@code password} пустое. Используется в {@link Main} перед подключением
- * к серверам.
+ * Дополняет недостающие поля (например, пароль) для InstanceConfig,
+ * пытаясь взять их из переменных окружения, иначе спрашивает у пользователя.
  */
 public final class InstanceConfigEnreacher {
 
-    private InstanceConfigEnreacher() { }
+    private InstanceConfigEnreacher() {}
 
     /**
-     * Проходит список конфигов, группируя их по имени пользователя, и
-     * единожды спрашивает пароль для каждой учётки. Возвращает тот же список,
-     * где у нужных элементов заполнено поле {@code password}.
-     *
-     * @param list исходные конфигурации
-     * @return список с заполненными паролями
+     * Заполняет пароли для всех конфигов:
+     * - если в объекте password пустой, сначала ищет в переменных окружения MSSQL_{USER}_PASSWORD,
+     * - если не нашёл — спрашивает в консоли.
      */
     public static List<InstanceConfig> enrichWithPasswords(List<InstanceConfig> list) {
-        // собираем userName → List<InstanceConfig> без пароля
         Map<String, List<InstanceConfig>> needPwd = new LinkedHashMap<>();
         for (InstanceConfig cfg : list) {
             if (cfg.password == null || cfg.password.isEmpty()) {
-                needPwd.computeIfAbsent(cfg.userName, k -> new ArrayList<>()).add(cfg);
+                // Сначала пробуем из переменной окружения
+                String user = (cfg.userName == null) ? "" : cfg.userName.trim();
+                String envVar = "MSSQL_" + user.toUpperCase(Locale.ROOT) + "_PASSWORD";
+                String pwd = System.getenv(envVar);
+
+                if (pwd != null && !pwd.isEmpty()) {
+                    cfg.password = pwd;
+                } else {
+                    // Добавляем к запросу у пользователя
+                    needPwd.computeIfAbsent(user, k -> new ArrayList<>()).add(cfg);
+                }
             }
         }
         if (needPwd.isEmpty()) return list;
@@ -42,7 +46,7 @@ public final class InstanceConfigEnreacher {
                 char[] ch = console.readPassword("Type password for account %s: ", account);
                 pwd = new String(ch);
             } else { // IDE/redirected input — fallback
-                LogService.printf("Type password for account %s: ", account);
+                System.out.printf("Type password for account %s: ", account);
                 pwd = scanner.nextLine();
             }
             // применяем ко всем конфигам этого userName

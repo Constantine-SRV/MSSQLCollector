@@ -1,59 +1,67 @@
 package logging;
 
 import java.io.*;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.nio.file.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 /**
- * Потокобезопасный логгер для записи в файл.
- * Файл создаётся в корне приложения, имя — YYYYMMDD_HHmm.log времени старта.
- * Использует singleton-паттерн.
+ * Запись строк в обычный лог и лог ошибок. Реализует “ленивое” открытие.
  */
 public class FileLogWriter {
-    private static FileLogWriter instance;
-    private final BufferedWriter writer;
-    private final String logFileName;
+    private static final DateTimeFormatter TS_FMT = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm");
+    private static final String LOG_PREFIX = "log_";
+    private static final String ERR_PREFIX = "err_";
+    private static final String EXT = ".log";
 
-    private FileLogWriter() throws IOException {
-        String ts = new SimpleDateFormat("yyyyMMdd_HHmm").format(new Date());
-        logFileName = ts + ".log";
-        File file = new File(logFileName);
-        writer = new BufferedWriter(new FileWriter(file, true)); // append
+    private static BufferedWriter logWriter;
+    private static BufferedWriter errWriter;
+
+    // Получить имя файла по текущему времени
+    private static String makeFileName(String prefix) {
+        String ts = LocalDateTime.now().format(TS_FMT);
+        return prefix + ts + EXT;
     }
 
-    public static synchronized FileLogWriter getInstance() {
-        if (instance == null) {
-            try {
-                instance = new FileLogWriter();
-            } catch (IOException ex) {
-                // Не удалось создать файл — можно просто печатать в консоль ошибку
-                System.err.println("[FileLogWriter] Can't create log file: " + ex.getMessage());
-                instance = null;
-            }
+    private static BufferedWriter getLogWriter() throws IOException {
+        if (logWriter == null) {
+            logWriter = Files.newBufferedWriter(Paths.get(makeFileName(LOG_PREFIX)),
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         }
-        return instance;
+        return logWriter;
     }
 
-    public synchronized void log(String msg) {
-        if (writer == null) return;
+    private static BufferedWriter getErrWriter() throws IOException {
+        if (errWriter == null) {
+            errWriter = Files.newBufferedWriter(Paths.get(makeFileName(ERR_PREFIX)),
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        }
+        return errWriter;
+    }
+
+    /** Записать строку в обычный лог (с таймштампом) */
+    public static synchronized void write(String line) {
         try {
-            writer.write(msg);
-            writer.newLine();
-            writer.flush();
-        } catch (IOException ex) {
-            System.err.println("[FileLogWriter] Write error: " + ex.getMessage());
+            getLogWriter().write(line);
+            getLogWriter().flush();
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
-    /** Имя файла лога, если надо показать где файл */
-    public String getLogFileName() {
-        return logFileName;
+    /** Записать строку в лог ошибок (с таймштампом) */
+    public static synchronized void writeErr(String line) {
+        try {
+            getErrWriter().write(line);
+            getErrWriter().flush();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
-    /** Корректное закрытие при завершении приложения */
-    public void close() {
-        try {
-            if (writer != null) writer.close();
-        } catch (IOException ignored) {}
+    /** Закрыть все файлы (по завершении работы) */
+    public static synchronized void close() {
+        try { if (logWriter != null) logWriter.close(); } catch (Exception ignored) {}
+        try { if (errWriter != null) errWriter.close(); } catch (Exception ignored) {}
     }
 }

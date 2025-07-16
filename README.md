@@ -75,3 +75,12 @@
     </LogsDestination>
 </MSSQLCollectorConfig>
 ```
+Пример использования переменных окружения
+
+В PowerShell:
+
+$env:MSSQL_USERJAVA_PASSWORD="secret123"
+
+В Linux bash:
+
+export MSSQL_USERJAVA_PASSWORD='secret123'
