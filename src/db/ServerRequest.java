@@ -65,17 +65,25 @@ public record ServerRequest(
     }
 
     private static String buildUrl(InstanceConfig ic) {
-        StringBuilder sb = new StringBuilder("jdbc:sqlserver://")
-                .append(requireNonNull(ic.instanceName));
-        if (ic.port != null) sb.append(':').append(ic.port);
-        sb.append(";encrypt=false;trustServerCertificate=true");
-        String baseConnStr = sb.toString();
+        // host[,port]  ИЛИ  host\instance (без порта)
+        StringBuilder sb = new StringBuilder("jdbc:sqlserver://");
 
-        // Вызовите энричер, чтобы добавить encrypt, trustServerCertificate, applicationName и т.д.
-        // Например, если у вас класс: db.MssqlConnectionStringEnricher
-        String enriched = db.MssqlConnectionStringEnricher.enrich(baseConnStr);
-        return enriched;
+        String host = ic.instanceName;     // то, что из XML <InstanceName>
+
+        if (ic.port != null) {
+            // если порт задан — используем host,port (забываем про \instance)
+            int slash = host.indexOf('\\');
+            if (slash >= 0) host = host.substring(0, slash);  // только host
+            sb.append(host).append(',').append(ic.port);
+        } else {
+            // порт не задан → оставляем как есть (возможно host\instance)
+            sb.append(host);
+        }
+
+        sb.append(";encrypt=false;trustServerCertificate=true");
+        return db.MssqlConnectionStringEnricher.enrich(sb.toString());
     }
+
 
     private static void closeSilently(Connection c) {
         try { if (c != null && !c.isClosed()) c.close(); } catch (Exception ignored) {}
