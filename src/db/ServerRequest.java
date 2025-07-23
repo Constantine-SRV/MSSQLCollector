@@ -30,8 +30,15 @@ public record ServerRequest(
 
         return DbConnector.getConnectionAsync(url, cfg.userName, cfg.password)
                 .thenCompose(conn -> runSequentially(conn, executor)
-                        .whenComplete((v, ex) -> closeSilently(conn)));
+                        .whenComplete((v, ex) -> closeSilently(conn)))
+                .exceptionally(ex -> {                     // ← перехват
+                    LogService.errorf("[DB-ERROR] Can't connect: %s – %s%n",
+                            url, ex.getCause() != null ? ex.getCause().getMessage()
+                                    : ex.getMessage());
+                    return null;                           // не роняем всю программу
+                });
     }
+
 
     private CompletableFuture<Void> runSequentially(Connection conn, Executor executor) {
         CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
