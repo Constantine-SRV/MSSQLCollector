@@ -3,11 +3,29 @@ import logging.LogService;
 import model.*;
 import processor.ResponseProcessor;
 
+import java.security.Security;          // <‑‑ NEW
 import java.util.List;
 import java.util.concurrent.*;
 
-/** Точка входа. */
+/** Точка входа приложения. */
 public class Main {
+
+    /* ------------------------------------------------------------------
+       Глобально снимаем ВСЕ ограничения Java‑TLS для данного процесса.
+       Делается один раз при загрузке класса Main, ещё до метода main().
+       ------------------------------------------------------------------ */
+    static {
+        // 1. Запреты на использования «опасных» алгоритмов в канале TLS
+        Security.setProperty("jdk.tls.disabledAlgorithms", "");
+
+        // 2. Запреты на алгоритмы у сертификатов (SHA‑1, MD5 и т.д.)
+        Security.setProperty("jdk.certpath.disabledAlgorithms", "");
+
+        // 3. (опционально) блокировки в Jar‑подписях
+        Security.setProperty("jdk.jar.disabledAlgorithms", "");
+
+        LogService.println("⚠ TLS restrictions are DISABLED for this run");
+    }
 
     public static void main(String[] args) throws Exception {
 
@@ -20,11 +38,9 @@ public class Main {
         }
 
         switch (cfg.taskName.toUpperCase()) {
-            case "SAVE_CONFIGS" -> runSaveConfigs(cfg);
-            case "PROCESS_XML_RESULT" -> {
-                LogService.println("Task PROCESS_XML_RESULT not implemented yet.");
-            }
-            default -> runFullPipeline(cfg);        // RUN (по умолчанию)
+            case "SAVE_CONFIGS"        -> runSaveConfigs(cfg);
+            case "PROCESS_XML_RESULT"  -> LogService.println("Task PROCESS_XML_RESULT not implemented yet.");
+            default                    -> runFullPipeline(cfg);   // RUN (по умолчанию)
         }
     }
 
