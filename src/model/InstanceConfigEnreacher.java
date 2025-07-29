@@ -4,54 +4,63 @@ import java.io.Console;
 import java.util.*;
 
 /**
- * Дополняет недостающие поля (например, пароль) для InstanceConfig,
- * пытаясь взять их из переменных окружения, иначе спрашивает у пользователя.
+ * Заполняет поле {@code password} в {@link InstanceConfig}.
+ * Логика вынесена в два уровня:
+ *  ▸ resolvePassword(user) — получить пароль для конкретной учётки
+ *  ▸ enrichWithPasswords(list) — пробежать список конфигов и подставить пароль
+ *
+ * Пароль ищем так:
+ *   1. переменная окружения  MSSQL_<USER>_PASSWORD
+ *   2. если нет — спрашиваем у пользователя один раз,
+ *      кешируем в static‑мапу и используем повторно.
  */
 public final class InstanceConfigEnreacher {
 
-    private InstanceConfigEnreacher() {}
+    /** cache: userName → password (заполняется по ходу работы) */
+    private static final Map<String, String> cache = new HashMap<>();
 
-    /**
-     * Заполняет пароли для всех конфигов:
-     * - если в объекте password пустой, сначала ищет в переменных окружения MSSQL_{USER}_PASSWORD,
-     * - если не нашёл — спрашивает в консоли.
-     */
+    private InstanceConfigEnreacher() { }
+
+    /* ------------------------------------------------------------ */
+    /*  1. получить пароль для логина (из env или интерактивно)     */
+    /* ------------------------------------------------------------ */
+    public static String resolvePassword(String user) {
+        if (user == null) user = "";
+        user = user.trim();
+
+        /* 1) уже кешировали? */
+        if (cache.containsKey(user))
+            return cache.get(user);
+
+        /* 2) переменная окружения */
+        String envVar = "MSSQL_" + user.toUpperCase(Locale.ROOT) + "_PASSWORD";
+        String pwd = System.getenv(envVar);
+        if (pwd != null && !pwd.isEmpty()) {
+            cache.put(user, pwd);
+            return pwd;
+        }
+
+        /* 3) спросить у человека (один раз) */
+        Console console = System.console();
+        if (console != null) {
+            char[] ch = console.readPassword("Type password for account %s: ", user);
+            pwd = new String(ch);
+        } else {
+            // IDE / non‑interactive fallback
+            System.out.printf("Type password for account %s: ", user);
+            pwd = new Scanner(System.in).nextLine();
+        }
+        cache.put(user, pwd);
+        return pwd;
+    }
+
+    /* ------------------------------------------------------------ */
+    /*  2. пройти список InstanceConfig и расставить пароли          */
+    /* ------------------------------------------------------------ */
     public static List<InstanceConfig> enrichWithPasswords(List<InstanceConfig> list) {
-        Map<String, List<InstanceConfig>> needPwd = new LinkedHashMap<>();
         for (InstanceConfig cfg : list) {
             if (cfg.password == null || cfg.password.isEmpty()) {
-                // Сначала пробуем из переменной окружения
-                String user = (cfg.userName == null) ? "" : cfg.userName.trim();
-                String envVar = "MSSQL_" + user.toUpperCase(Locale.ROOT) + "_PASSWORD";
-                String pwd = System.getenv(envVar);
-
-                if (pwd != null && !pwd.isEmpty()) {
-                    cfg.password = pwd;
-                } else {
-                    // Добавляем к запросу у пользователя
-                    needPwd.computeIfAbsent(user, k -> new ArrayList<>()).add(cfg);
-                }
-            }
-        }
-        if (needPwd.isEmpty()) return list;
-
-        Console console = System.console();
-        Scanner scanner = (console == null) ? new Scanner(System.in) : null;
-
-        for (Map.Entry<String, List<InstanceConfig>> e : needPwd.entrySet()) {
-            String account = e.getKey();
-            String pwd;
-
-            if (console != null) {
-                char[] ch = console.readPassword("Type password for account %s: ", account);
-                pwd = new String(ch);
-            } else { // IDE/redirected input — fallback
-                System.out.printf("Type password for account %s: ", account);
-                pwd = scanner.nextLine();
-            }
-            // применяем ко всем конфигам этого userName
-            for (InstanceConfig cfg : e.getValue()) {
-                cfg.password = pwd;
+                cfg.password = resolvePassword(cfg.userName);
             }
         }
         return list;

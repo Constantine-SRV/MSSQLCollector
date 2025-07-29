@@ -74,7 +74,7 @@ public record ServerRequest(
             // если порт задан — используем host,port (забываем про \instance)
             int slash = host.indexOf('\\');
             if (slash >= 0) host = host.substring(0, slash);  // только host
-            sb.append(host).append(',').append(ic.port);
+            sb.append(host).append(':').append(ic.port);
         } else {
             // порт не задан → оставляем как есть (возможно host\instance)
             sb.append(host);

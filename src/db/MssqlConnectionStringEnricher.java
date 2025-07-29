@@ -1,69 +1,139 @@
 package db;
 
-import java.io.File;
-import java.net.URL;
-import java.security.CodeSource;
-import java.text.SimpleDateFormat;
+import model.InstanceConfigEnreacher;
+
+import java.net.InetAddress;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
- * Добавляет к MSSQL-строке подключения обязательные параметры.
- * applicationName формируется: <JarName_yyyyMMdd_HHmm> либо <ProjectDir>.
+ * «Обогатитель» JDBC‑строки:
+ *   • гарантирует наличие полезных параметров (encrypt / trustServerCertificate …)
+ *   • добавляет applicationName=<JarName>_<yyyyMMdd_HHmm>
+ *   • если указана учётка (user= / username=) и ПАРОЛЬ НЕ указан,
+ *     запрашивает/ищет его через InstanceConfigEnreacher.resolvePassword()
+ *
+ * Использование:
+ *   String enriched = MssqlConnectionStringEnricher.enrich(baseConnStr);
  */
 public final class MssqlConnectionStringEnricher {
 
-    /** Кешированное имя приложения. */
-    private static final String DEFAULT_APP_NAME = buildDefaultAppName();
+    private static final DateTimeFormatter TS =
+            DateTimeFormatter.ofPattern("yyyyMMdd_HHmm");
 
-    private MssqlConnectionStringEnricher() { }
+    private MssqlConnectionStringEnricher() {}
 
-    /** Обогащаем строку подключения нужными параметрами. */
-    public static String enrich(String original) {
-        if (original == null || original.isBlank())
-            throw new IllegalArgumentException("Connection string must not be null or empty");
+    /* ------------------------------------------------------------------ */
+    /*  Публичный API                                                     */
+    /* ------------------------------------------------------------------ */
+    public static String enrich(String connStr) {
 
-        String base  = original.trim();
-        String lower = base.toLowerCase(Locale.ROOT);
+        /* 1. разбираем "key=value;" -> map */
+        Map<String,String> p = parse(connStr);
 
-        StringBuilder sb = new StringBuilder(base);
-        if (!base.endsWith(";")) sb.append(';');
+        /* 2. добавляем/исправляем стандартные параметры ----------------- */
+        putIfAbsent(p, "encrypt",              "false");
+        putIfAbsent(p, "trustServerCertificate","true");
+        putIfAbsent(p, "multiSubnetFailover",  "true");
 
-        if (!lower.contains("encrypt="))
-            sb.append("encrypt=false;");
+        /* 3. applicationName=<jar>_<YYYYMMDD_HHMM> ---------------------- */
+        if (!hasKey(p, "applicationName")) {
+            p.put("applicationName", buildAppName());
+        }
 
-        if (!lower.contains("trustservercertificate="))
-            sb.append("trustServerCertificate=true;");
+        /* 4. пароль для явной учётки ------------------------------------ */
+        if (!isIntegratedAuth(p)) {
+            String user = getFirst(p, "user", "username");
+            if (user != null && !user.isEmpty()
+                    && !hasKey(p, "password")) {
 
-        if (!lower.contains("multisubnetfailover="))
-            sb.append("multiSubnetFailover=true;");
+                String pwd = InstanceConfigEnreacher.resolvePassword(user);
+                p.put("password", pwd);
+            }
+        }
 
-        if (!lower.contains("applicationname="))
-            sb.append("applicationName=").append(DEFAULT_APP_NAME).append(';');
+        /* 5. собираем обратно в строку ---------------------------------- */
+        return toString(p);
+    }
 
+    /* ------------------------------------------------------------------ */
+    /*  Вспомогательные методы                                            */
+    /* ------------------------------------------------------------------ */
+
+    /** разбор  a=1;b=2; -> map (без учёта регистра ключа) */
+    private static Map<String,String> parse(String s) {
+        Map<String,String> map = new LinkedHashMap<>();
+        for (String part : s.split("(?i);")) {
+            int eq = part.indexOf('=');
+            if (eq > 0) {
+                String k = part.substring(0, eq).trim().toLowerCase(Locale.ROOT);
+                String v = part.substring(eq+1).trim();
+                if (!k.isEmpty()) map.put(k, v);
+            } else if (!part.isBlank()) {
+                // host[,port]  / host\instance  кусок без =
+                map.put("_server", part.trim());
+            }
+        }
+        return map;
+    }
+
+    /** вернуть соединённую строку */
+    private static String toString(Map<String,String> p) {
+        StringBuilder sb = new StringBuilder();
+
+        // вначале «серверную» часть (ключ "_server")
+        sb.append(p.getOrDefault("_server", ""));
+        sb.append(";");
+
+        // затем остальные параметры
+        p.forEach((k,v) -> {
+            if (!k.equals("_server"))
+                sb.append(k).append("=").append(v).append(";");
+        });
         return sb.toString();
     }
 
-    // ────────────────────────── private ──────────────────────────
+    /** key1/key2 … без учёта регистра */
+    private static boolean hasKey(Map<String,String> p, String... keys) {
+        for (String k : keys) if (p.containsKey(k.toLowerCase(Locale.ROOT))) return true;
+        return false;
+    }
+    private static String getFirst(Map<String,String> p, String... keys) {
+        for (String k : keys) {
+            String v = p.get(k.toLowerCase(Locale.ROOT));
+            if (v != null) return v;
+        }
+        return null;
+    }
+    private static void putIfAbsent(Map<String,String> p, String k, String v) {
+        p.putIfAbsent(k.toLowerCase(Locale.ROOT), v);
+    }
 
-    /** Строит applicationName: <JarName_yyyyMMdd_HHmm> или <ProjectDir>. */
-    private static String buildDefaultAppName() {
-        try {
-            CodeSource cs = MssqlConnectionStringEnricher.class
-                    .getProtectionDomain().getCodeSource();
-            if (cs != null) {
-                URL loc = cs.getLocation();
-                if (loc != null && loc.getPath().endsWith(".jar")) {
-                    File jar = new File(loc.toURI());
-                    String jarName = jar.getName().replaceFirst("[.]jar$", "");
-                    String ts = new SimpleDateFormat("yyyyMMdd_HHmm")
-                            .format(new Date(jar.lastModified()));
-                    return jarName + '_' + ts;
-                }
-            }
-        } catch (Exception ignored) { }
+    /** true если используется интегрированная аутентификация */
+    private static boolean isIntegratedAuth(Map<String,String> p) {
+        String v = getFirst(p, "integratedSecurity", "authenticationScheme");
+        return v != null && v.equalsIgnoreCase("true");
+    }
 
-        /* IDE / класс-путь: берём имя каталога проекта */
-        String dir = System.getProperty("user.dir", ".");
-        return new File(dir).getName();
+    /** applicationName=<jar|Main>_20250724_1210  */
+    private static String buildAppName() {
+        String jar = Optional.ofNullable(
+                        MssqlConnectionStringEnricher.class
+                                .getProtectionDomain()
+                                .getCodeSource())
+                .map(cs -> cs.getLocation().getPath())
+                .map(path -> {
+                    int slash = path.lastIndexOf('/');
+                    return (slash >= 0) ? path.substring(slash+1) : path;
+                })
+                .orElse("Main");
+        // убираем .jar, если есть
+        if (jar.endsWith(".jar")) jar = jar.substring(0, jar.length()-4);
+
+        String host = "UnknownHost";
+        try { host = InetAddress.getLocalHost().getHostName(); } catch (Exception ignore) {}
+
+        return jar + "_" + host + "_" + LocalDateTime.now().format(TS);
     }
 }
