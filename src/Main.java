@@ -3,7 +3,7 @@ import logging.LogService;
 import model.*;
 import processor.ResponseProcessor;
 
-import java.security.Security;          // <‑‑ NEW
+import java.security.Security;          // <‑‑  NEW
 import java.util.List;
 import java.util.concurrent.*;
 
@@ -23,11 +23,10 @@ public class Main {
 
         // 3. (опционально) блокировки в Jar‑подписях
         Security.setProperty("jdk.jar.disabledAlgorithms", "");
-
-        LogService.println("⚠ TLS restrictions are DISABLED for this run");
     }
 
     public static void main(String[] args) throws Exception {
+        LogService.println("Version 2025‑07‑29‑V1 Started");
 
         String cfgFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig.xml";
         AppConfig cfg = AppConfigReader.read(cfgFile);
@@ -38,25 +37,30 @@ public class Main {
         }
 
         switch (cfg.taskName.toUpperCase()) {
-            case "SAVE_CONFIGS"        -> runSaveConfigs(cfg);
-            case "PROCESS_XML_RESULT"  -> LogService.println("Task PROCESS_XML_RESULT not implemented yet.");
-            default                    -> runFullPipeline(cfg);   // RUN (по умолчанию)
+            case "SAVE_CONFIGS"       -> runSaveConfigs(cfg);
+            case "PROCESS_XML_RESULT" -> LogService.println("Task PROCESS_XML_RESULT not implemented yet.");
+            default                   -> runFullPipeline(cfg);   // RUN (по умолчанию)
         }
     }
 
     /* ========== режим RUN (как раньше) ========================= */
     private static void runFullPipeline(AppConfig cfg) throws Exception {
 
+        /* ── 1. Чтение конфигов ───────────────────────────────── */
+        long t0Total = System.nanoTime();
+
         List<InstanceConfig> servers = InstancesConfigReader.readConfig(cfg);
         List<QueryRequest>   queries = QueryRequestsReader.read(cfg);
 
-        // пароли + enrich строк подключения
+        /* ── 2. Подготовка (пароли + обогащение строк) ────────── */
         InstanceConfigEnreacher.enrichWithPasswords(servers);
-
         ResponseProcessor resp = new ResponseProcessor(cfg.resultsDestination);
 
         ExecutorService pool = Executors.newFixedThreadPool(
                 Math.min(servers.size(), cfg.threadPoolSize));
+
+        /* ── 3. Параллельный опрос всех серверов ──────────────── */
+        long t0Exec = System.nanoTime();
 
         CompletableFuture.allOf(
                 servers.stream()
@@ -64,7 +68,18 @@ public class Main {
                         .toArray(CompletableFuture[]::new)
         ).join();
 
+        long execMs = (System.nanoTime() - t0Exec) / 1_000_000;
+        double avgPerSrv = servers.isEmpty() ? 0.0 : (double) execMs / servers.size();
+        LogService.printf("[TIME] Parallel block: %d ms (≈ %.2f ms / server)%n",
+                execMs, avgPerSrv);
+
         pool.shutdown();
+
+        /* ── 4. Финальная статистика ──────────────────────────── */
+        long totalMs = (System.nanoTime() - t0Total) / 1_000_000;
+        LogService.printf("[TIME] runFullPipeline finished in %d ms (%.2f s), avg %.2f ms/server%n",
+                totalMs, totalMs / 1000.0, servers.isEmpty() ? 0.0 : (double) totalMs / servers.size());
+
     }
 
     /* ========== режим SAVE_CONFIGS ============================= */
