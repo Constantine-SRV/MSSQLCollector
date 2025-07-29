@@ -77,9 +77,8 @@ public class Main {
 
         /* ── 4. Финальная статистика ──────────────────────────── */
         long totalMs = (System.nanoTime() - t0Total) / 1_000_000;
-        LogService.printf("[TIME] runFullPipeline finished in %d ms (%.2f s), avg %.2f ms/server%n",
-                totalMs, totalMs / 1000.0, servers.isEmpty() ? 0.0 : (double) totalMs / servers.size());
-
+        LogService.printf("[TIME] runFullPipeline finished in %d ms (%.2f s)%n",
+                totalMs, totalMs / 1000.0);
     }
 
     /* ========== режим SAVE_CONFIGS ============================= */
