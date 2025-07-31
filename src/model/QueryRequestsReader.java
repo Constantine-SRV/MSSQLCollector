@@ -69,6 +69,7 @@ public class QueryRequestsReader {
             String text = el.getTextContent().trim();
             list.add(new QueryRequest(id, text));
         }
+        LogService.printf("QueryRequestsReader: loaded %d queries from local file '%s'%n", list.size(), file.getAbsolutePath());
         return list;
     }
 }

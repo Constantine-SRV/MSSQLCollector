@@ -25,8 +25,5 @@ public class DestinationConfig {
      */
     public String prometheusUrl;
 
-    /**
-     * Имя метрики Prometheus (по умолчанию 'sqlserver_counter_value', можно задать в конфиге)
-     */
-    public String metricName;
+
 }
