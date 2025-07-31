@@ -8,20 +8,20 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.util.Locale;
 
 /**
  * Преобразует ResultSet в Prometheus exposition-формат и
  * отправляет его в VictoriaMetrics.
  *
- * Требования к ResultSet:
- *   • counter_name   – имя метрики (string). Если отсутствует / пусто,
- *                      будет использовано "no_name_metric".
- *   • counter_value  – числовое значение.
- *   • sql_server     – (optional) метка sql_server
- *   • source         – (optional) метка source
- *   • instance_name  – (optional) метка instance_name
+ *  Требования к ResultSet:
+ *    • counter_name   – имя метрики (string). Если нет → «no_name_metric».
+ *    • counter_value  – числовое значение.
+ *  Все остальные столбцы автоматически превращаются в labels.
  *
- * Дополнительные метки добавляются по мере наличия столбцов.
+ *  В результирующих лейблах всегда присутствуют:
+ *    ci   – идентификатор конфигурации сервера (наружный параметр)
+ *    reqId – идентификатор запроса                    (наружный параметр)
  */
 public class PrometheusResultWriter {
 
@@ -31,25 +31,48 @@ public class PrometheusResultWriter {
         this.destCfg = destCfg;
     }
 
-    /**
-     * Обрабатывает один (CI, reqId, ResultSet):
-     * формирует тело в формате Prometheus 0.0.4 и шлёт POST-запрос в Victoria.
-     */
+    /* ────────────────────────── public API ───────────────────────────── */
+
+    /** Обработка одного (CI, reqId, ResultSet) */
     public void write(String ci, String reqId, ResultSet rs) throws Exception {
         StringBuilder body = new StringBuilder();
         ResultSetMetaData md = rs.getMetaData();
+        int colCnt = md.getColumnCount();
         int rowCnt = 0;
 
         while (rs.next()) {
-            String name = safePromName(rs, "counter_name");
 
-            body.append(name)
-                    .append("{ci=\"").append(ci).append("\"");
+            // -------- имя метрики --------
+            String metric = safeMetricName(rs.getString("counter_name"));
 
-            appendLabel(body, rs, "sql_server");
-            appendLabel(body, rs, "source");
-            appendLabel(body, rs, "instance_name");
+            body.append(metric)
+                    .append("{ci=\"").append(ci)
+                    .append("\",reqId=\"").append(reqId).append("\"");
 
+            // -------- динамические лейблы --------
+            for (int i = 1; i <= colCnt; i++) {
+                String col = md.getColumnLabel(i);
+                if (col == null) col = md.getColumnName(i);
+                if (col == null) continue;
+
+                String colLower = col.toLowerCase(Locale.ROOT);
+                if (colLower.equals("counter_name") || colLower.equals("counter_value"))
+                    continue;            // это не label
+                if (colLower.equals("ci") || colLower.equals("reqid"))
+                    continue;            // уже добавили вручную
+
+                String val = rs.getString(i);
+                if (val == null || val.isEmpty())
+                    continue;
+
+                body.append(',')
+                        .append(safeLabelName(col))
+                        .append("=\"")
+                        .append(val.replace("\"", "\\\""))
+                        .append('"');
+            }
+
+            // -------- значение --------
             body.append("} ")
                     .append(rs.getString("counter_value"))
                     .append('\n');
@@ -65,37 +88,27 @@ public class PrometheusResultWriter {
 
     /* ─────────────────────── helpers ─────────────────────── */
 
-    /** Возвращает корректное имя метрики Prometheus или "no_name_metric". */
-    private static String safePromName(ResultSet rs, String field) {
-        try {
-            String val = rs.getString(field);
-            if (val == null) val = "";
-            // Заменяем все недопустимые символы на подчёркивания
-            val = val.replaceAll("[^a-zA-Z0-9_:]", "_").replaceAll("_+", "_");
-            if (val.isEmpty()) return "no_name_metric";
-            // Имя не может начинаться с цифры
-            if (Character.isDigit(val.charAt(0))) val = "_" + val;
-            return val;
-        } catch (Exception e) {
-            return "no_name_metric";
-        }
+    /** Санация имени метрики. */
+    private static String safeMetricName(String raw) {
+        if (raw == null) raw = "";
+        String cleaned = raw.replaceAll("[^a-zA-Z0-9_:]", "_")
+                .replaceAll("_+", "_");
+        if (cleaned.isEmpty()) cleaned = "no_name_metric";
+        if (Character.isDigit(cleaned.charAt(0)))
+            cleaned = "_" + cleaned;
+        return cleaned;
     }
 
-    /** Добавляет label, если столбец присутствует и не пустой. */
-    private static void appendLabel(StringBuilder sb, ResultSet rs, String col) {
-        try {
-            String val = rs.getString(col);
-            if (val != null && !val.isEmpty()) {
-                sb.append(',')
-                        .append(col)
-                        .append("=\"")
-                        .append(val.replace("\"", "\\\""))
-                        .append('"');
-            }
-        } catch (Exception ignored) { }
+    /** Санация имени label-поля. */
+    private static String safeLabelName(String raw) {
+        String cleaned = raw.replaceAll("[^a-zA-Z0-9_]", "_")
+                .replaceAll("_+", "_");
+        if (cleaned.isEmpty() || Character.isDigit(cleaned.charAt(0)))
+            cleaned = "_" + cleaned;
+        return cleaned;
     }
 
-    /** Отправляет сформированное тело в VictoriaMetrics. */
+    /** HTTP-POST в VictoriaMetrics. */
     private void sendToVictoria(String body) throws Exception {
         if (body.isEmpty()) return;
 
@@ -113,7 +126,8 @@ public class PrometheusResultWriter {
 
         int resp = con.getResponseCode();
         if (resp < 200 || resp > 299) {
-            LogService.errorf("[VM-ERROR] HTTP %d sending to Victoria: %s%n", resp, destCfg.prometheusUrl);
+            LogService.errorf("[VM-ERROR] HTTP %d sending to Victoria: %s%n",
+                    resp, destCfg.prometheusUrl);
         }
 
         con.disconnect();
