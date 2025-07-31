@@ -2,7 +2,6 @@ package processor;
 
 import model.DestinationConfig;
 import logging.LogService;
-
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -11,11 +10,12 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * Универсальный обработчик результатов: пишет их либо в файл, либо в БД через SP, либо (заглушка) в Mongo.
+ * Универсальный обработчик результатов: пишет их либо в файл, либо в БД через SP,
+ * либо (новое) в VictoriaMetrics/Prometheus, либо (заглушка) в Mongo.
  */
 public class ResponseProcessor {
     private final DestinationConfig destCfg;
-    private final String outDirName;
+    private final PrometheusResultWriter prometheusWriter;
     private static final DateTimeFormatter TS_FMT = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm");
 
     /**
@@ -23,8 +23,8 @@ public class ResponseProcessor {
      */
     public ResponseProcessor(DestinationConfig destCfg) {
         this.destCfg = destCfg;
-        // Для файлового режима генерируем имя каталога с таймстампом
-        this.outDirName = "out_" + LocalDateTime.now().format(TS_FMT);
+        this.prometheusWriter = destCfg.type != null && destCfg.type.equalsIgnoreCase("PROMETHEUS")
+                ? new PrometheusResultWriter(destCfg) : null;
     }
 
     /**
@@ -38,6 +38,15 @@ public class ResponseProcessor {
             case "MONGO":
                 LogService.printf("[RESP] MONGO write not implemented for %s_%s%n", ci, reqId);
                 break;
+            case "PROMETHEUS":
+                if (prometheusWriter != null)
+                {
+                    prometheusWriter.write(ci, reqId, rs);
+                    LogService.printf("[INFO]  PROMETHEUS %s_%s%n", ci, reqId);
+                }
+                else
+                    LogService.errorf("[RESP] PROMETHEUS writer not initialized%n");
+                break;
             case "LOCALFILE":
             default:
                 saveToLocalFile(ci, reqId, rs);
@@ -48,20 +57,15 @@ public class ResponseProcessor {
      * Сохраняет результат в файл формата XML (для ручного анализа).
      */
     private void saveToLocalFile(String ci, String reqId, ResultSet rs) throws SQLException, IOException {
-        Path outDir = Paths.get(outDirName);
-        try {
-            if (!Files.exists(outDir)) Files.createDirectory(outDir);
-        } catch (IOException ex) {
-            LogService.errorf("[ERROR] Не удалось создать каталог %s: %s%n", outDirName, ex.getMessage());
-            throw ex; // Или return, если не критично
-        }
+        Path outDir = Paths.get("out_" + LocalDateTime.now().format(TS_FMT));
+        if (!Files.exists(outDir)) Files.createDirectory(outDir);
 
         File outFile = outDir.resolve(ci + "_" + reqId + ".xml").toFile();
-        // Обернём запись в try/catch для перехвата любых IO ошибок (например, антивирус)
         try (BufferedWriter w = Files.newBufferedWriter(outFile.toPath(), StandardCharsets.UTF_8)) {
             ResultSetMetaData md = rs.getMetaData();
             int cols = md.getColumnCount();
 
+            // Декларация только для файла!
             w.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Result>\n");
             int rowCnt = 0;
             while (rs.next()) {
@@ -78,18 +82,11 @@ public class ResponseProcessor {
             }
             w.write("</Result>\n");
             LogService.printf("[RESP] %s_%s (%d rows) -> %s%n", ci, reqId, rowCnt, outFile.getName());
-        } catch (IOException ex) {
-            LogService.errorf("[ERROR] Ошибка записи файла %s: %s%n", outFile.getAbsolutePath(), ex.getMessage());
-            ex.printStackTrace();
-            // Можно повторить попытку записи или просто прокинуть ошибку выше
-            // throw ex; // если критично
         }
     }
 
     /**
      * Сохраняет результат в MSSQL через хранимую процедуру.
-     * Передает параметры: CI, reqId, XML как строки.
-     * Декларация encoding НЕ добавляется (иначе ошибка "unable to switch the encoding").
      */
     private void saveToMSSQL(String ci, String reqId, ResultSet rs) {
         StringBuilder xml = new StringBuilder();
@@ -150,10 +147,6 @@ public class ResponseProcessor {
         }
     }
 
-    /**
-     * Выводит цепочку всех SQL-исключений, включая сообщения SQL Server,
-     * коды ошибок, состояния, тексты RAISERROR и т.п.
-     */
     private static void printSqlErrorChain(SQLException ex) {
         SQLException next = ex;
         while (next != null) {
@@ -162,12 +155,9 @@ public class ResponseProcessor {
                     ", message: " + next.getMessage());
             next = next.getNextException();
         }
-        ex.printStackTrace(); // для полной картины (номер строки и т.д.)
+        ex.printStackTrace();
     }
 
-    /**
-     * Простейший экранировщик спецсимволов для XML.
-     */
     private static String escape(String s) {
         return s.replace("&", "&amp;")
                 .replace("<", "&lt;")

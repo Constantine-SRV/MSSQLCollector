@@ -6,17 +6,27 @@ package model;
  * получателей: база MSSQL, MongoDB, локальные файлы или консоль.
  */
 public class DestinationConfig {
+    public String type;
 
-    /** Тип приёмника: {@code MSSQL}, {@code MONGO}, {@code LocalFile} или {@code Console}. */
-    public String type = "";
-    /** Строка подключения к MSSQL, если выбран соответствующий тип. */
-    public String mssqlConnectionString = "";
-    /** Имя процедуры или запрос для записи в MSSQL. */
-    public String mssqlQuery = "";
-    /** Строка подключения к MongoDB. */
-    public String mongoConnectionString = "";
-    /** Имя коллекции MongoDB. */
-    public String mongoCollectionName = "";
-    /** Путь к каталогу при файловом выводе. */
-    public String directoryPath = "";
+    // MSSQL-specific
+    public String mssqlConnectionString;
+    public String mssqlQuery;
+
+    // Mongo-specific
+    public String mongoConnectionString;
+    public String mongoCollectionName;
+
+    // LocalFile-specific
+    public String directoryPath;
+
+    // --- Новое для Prometheus/VictoriaMetrics ---
+    /**
+     * URL сервера VictoriaMetrics/Prometheus (например, http://xxxxx/api/v1/import/prometheus)
+     */
+    public String prometheusUrl;
+
+    /**
+     * Имя метрики Prometheus (по умолчанию 'sqlserver_counter_value', можно задать в конфиге)
+     */
+    public String metricName;
 }
