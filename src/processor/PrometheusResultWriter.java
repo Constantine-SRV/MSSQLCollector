@@ -15,8 +15,8 @@ import java.util.Locale;
  * отправляет его в VictoriaMetrics.
  *
  *  Требования к ResultSet:
- *    • counter_name   – имя метрики (string). Если нет → «no_name_metric».
- *    • counter_value  – числовое значение.
+ *    • metric_name   – имя метрики (string). Если нет → «no_name_metric».
+ *    • metric_value  – числовое значение.
  *  Все остальные столбцы автоматически превращаются в labels.
  *
  *  В результирующих лейблах всегда присутствуют:
@@ -43,7 +43,7 @@ public class PrometheusResultWriter {
         while (rs.next()) {
 
             // -------- имя метрики --------
-            String metric = safeMetricName(rs.getString("counter_name"));
+            String metric = safeMetricName(rs.getString("metric_name"));
 
             body.append(metric)
                     .append("{ci=\"").append(ci)
@@ -56,7 +56,7 @@ public class PrometheusResultWriter {
                 if (col == null) continue;
 
                 String colLower = col.toLowerCase(Locale.ROOT);
-                if (colLower.equals("counter_name") || colLower.equals("counter_value"))
+                if (colLower.equals("metric_name") || colLower.equals("metric_value"))
                     continue;            // это не label
                 if (colLower.equals("ci") || colLower.equals("reqid"))
                     continue;            // уже добавили вручную
@@ -74,7 +74,7 @@ public class PrometheusResultWriter {
 
             // -------- значение --------
             body.append("} ")
-                    .append(rs.getString("counter_value"))
+                    .append(rs.getString("metric_value"))
                     .append('\n');
 
             rowCnt++;
