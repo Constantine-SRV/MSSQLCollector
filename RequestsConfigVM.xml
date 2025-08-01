@@ -2,57 +2,28 @@
 <!--
   Файл запросов для MSSQLCollector
   ──────────────────────────────────────────────────────────────────────────────
-  • Разделяйте несколько запросов отдельными <Query>-блоками.
-  • Атрибут id            →   будет передан в label  reqId="<id>"  (см. пример).
-  • В каждом SELECT ОБЯЗАТЕЛЬНЫ СТОЛБЦЫ
-        counter_name    – строка: имя метрики (будет преобразовано в Prom-формат)
-        counter_value   – число : значение метрики
-    Всё остальное из выборки автоматически уходит в LABELS Prometheus —
-    ➜ имя столбца → название label,
-    ➜ значение     → значение label.
+  • id          → в label reqId
+  • metric_name → имя метрики (строка, обязательно)
+      если NULL/пусто, подставится "no_name_metric"
+  • metric_value→ значение (число, обязательно)
+      если не число — VictoriaMetrics отклонит строку
 
-    Например, если в SELECT есть:
-        sql_server     – попадёт в label sql_server="<…>"
-        source         – попадёт в label source="<…>"
-        instance_name  – попадёт в label instance_name="<…>"
-        любые_другие_поля → тоже станут label’ами.
+  Остальные поля — любые, автоматически попадут в labels.
 
-    Обязательность:
-      counter_name     – если NULL/пусто → подставится "no_name_metric"
-      counter_value    – должен быть числом (иначе запись будет отклонена VictoriaMetrics)
-
-    Все спец-символы в названиях метрик/лейблов автоматически заменяются на «_».
-    Метрика публикуется с дополнительными лейблами:
-        ci   = "<CI-из-конфига>"
-        reqId= "<значение id из <Query id=…>>"
-  ──────────────────────────────────────────────────────────────────────────────
+  В результирующей строке экспозиции всегда будут:
+      {ci="<ci>", reqId="<id>", …и ваши label-поля…}
 -->
 
 <Queries>
-
-    <!--  ПРИМЕР: счётчики DMV sys.dm_os_performance_counters -->
-    <Query id="PERF_counter_01">
+    <!-- Пример для dm_os_performance_counters -->
+    <Query id="PERF">
         SELECT
-        @@SERVERNAME                                   AS [sql_server],          -- label sql_server
-        'dm_os_performance_counters'                   AS [source],              -- label source
-        -- Название метрики (будет «SQLServer:Memory_Broker_…» и т. д.)
-        CONVERT(sysname, RTRIM(object_name)) + '/' +
-        CONVERT(sysname, RTRIM(counter_name))          AS [counter_name],
-        RTRIM(instance_name)                           AS [instance_name],       -- label instance_name
-        cntr_value                                     AS [counter_value]        -- VALUE!
+            @@SERVERNAME                                   AS [sql_server],          -- label sql_server
+            'dm_os_performance_counters'                   AS [source],              -- label source
+            CONVERT(sysname, RTRIM(object_name)) + '/' +
+            CONVERT(sysname, RTRIM(counter_name))          AS [metric_name],         -- обязательно!
+            RTRIM(instance_name)                           AS [instance_name],       -- label instance_name
+            cntr_value                                     AS [metric_value]         -- обязательно!
         FROM sys.dm_os_performance_counters
     </Query>
-
-    <Query id="PERF_disk_01">
-        SELECT
-        @@SERVERNAME                                   AS [sql_server],
-        'dm_io_virtual_file_stats' AS [source],
-        'io_stall_write_ms' AS [counter_name],
-        physical_name AS [instance_name],
-        io_stall_write_ms AS [counter_value]
-        FROM sys.dm_io_virtual_file_stats (NULL,NULL) AS vf
-        JOIN sys.master_files mf ON vf.database_id = mf.database_id AND vf.file_id = mf.file_id
-    </Query>
-
-
 </Queries>
