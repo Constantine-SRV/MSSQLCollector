@@ -26,7 +26,7 @@ public class Main {
     }
 
     public static void main(String[] args) throws Exception {
-        LogService.println("Version 2025‑07‑29‑V1 Started");
+        LogService.println("Version 2025‑08‑05‑labels_1 Started");
 
         String cfgFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig.xml";
         AppConfig cfg = AppConfigReader.read(cfgFile);

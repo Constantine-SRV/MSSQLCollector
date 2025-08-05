@@ -30,15 +30,8 @@ public record ServerRequest(
 
         return DbConnector.getConnectionAsync(url, cfg.userName, cfg.password)
                 .thenCompose(conn -> runSequentially(conn, executor)
-                        .whenComplete((v, ex) -> closeSilently(conn)))
-                .exceptionally(ex -> {                     // ← перехват
-                    LogService.errorf("[DB-ERROR] Can't connect: %s – %s%n",
-                            url, ex.getCause() != null ? ex.getCause().getMessage()
-                                    : ex.getMessage());
-                    return null;                           // не роняем всю программу
-                });
+                        .whenComplete((v, ex) -> closeSilently(conn)));
     }
-
 
     private CompletableFuture<Void> runSequentially(Connection conn, Executor executor) {
         CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
@@ -53,37 +46,30 @@ public record ServerRequest(
         try (var st = conn.createStatement();
              var rs = st.executeQuery(qr.queryText())) {
 
-            responseProcessor.handle(cfg.ci, qr.requestId(), rs);
+            // ⬇⬇⬇ РАНЬШЕ передавали только ci; теперь передаём весь cfg,
+            // чтобы далее можно было использовать cfg.extraLabels в Prometheus.
+            responseProcessor.handle(cfg, qr.requestId(), rs);
 
         } catch (SQLException ex) {
-            LogService.errorf("[CI=%s][ReqID=%s] SQL-ERROR: %s%n",
-                    cfg.ci, qr.requestId(), ex.getMessage());
+            LogService.error(String.format("[CI=%s][ReqID=%s] SQL-ERROR: %s",
+                    cfg.ci, qr.requestId(), ex.getMessage()));
         } catch (Exception ex) {
-            LogService.errorf("[CI=%s][ReqID=%s] ERROR: %s%n",
-                    cfg.ci, qr.requestId(), ex.getMessage());
+            LogService.error(String.format("[CI=%s][ReqID=%s] ERROR: %s",
+                    cfg.ci, qr.requestId(), ex.getMessage()));
         }
     }
 
     private static String buildUrl(InstanceConfig ic) {
-        // host[,port]  ИЛИ  host\instance (без порта)
-        StringBuilder sb = new StringBuilder("jdbc:sqlserver://");
-
-        String host = ic.instanceName;     // то, что из XML <InstanceName>
-
-        if (ic.port != null) {
-            // если порт задан — используем host,port (забываем про \instance)
-            int slash = host.indexOf('\\');
-            if (slash >= 0) host = host.substring(0, slash);  // только host
-            sb.append(host).append(':').append(ic.port);
-        } else {
-            // порт не задан → оставляем как есть (возможно host\instance)
-            sb.append(host);
-        }
-
+        StringBuilder sb = new StringBuilder("jdbc:sqlserver://")
+                .append(requireNonNull(ic.instanceName));
+        if (ic.port != null) sb.append(':').append(ic.port);
         sb.append(";encrypt=false;trustServerCertificate=true");
-        return db.MssqlConnectionStringEnricher.enrich(sb.toString());
-    }
+        String baseConnStr = sb.toString();
 
+        // Вызовите энричер, чтобы добавить encrypt, trustServerCertificate, applicationName и т.д.
+        String enriched = db.MssqlConnectionStringEnricher.enrich(baseConnStr);
+        return enriched;
+    }
 
     private static void closeSilently(Connection c) {
         try { if (c != null && !c.isClosed()) c.close(); } catch (Exception ignored) {}
