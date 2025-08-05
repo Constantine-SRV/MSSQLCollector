@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  Файл запросов для MSSQLCollector
+  ──────────────────────────────────────────────────────────────────────────────
+  • id          → в label reqId
+  • metric_name → имя метрики (строка, обязательно)
+      если NULL/пусто, подставится "no_name_metric"
+  • metric_value→ значение (число, обязательно)
+      если не число — VictoriaMetrics отклонит строку
+
+  Остальные поля — любые, автоматически попадут в labels.
+
+  В результирующей строке экспозиции всегда будут:
+      {ci="<ci>", reqId="<id>", …и ваши label-поля…}
+-->
+
+<Queries>
+    <!-- Пример для dm_os_performance_counters -->
+    <Query id="PERF">
+        SELECT
+        @@SERVERNAME                                   AS [sql_server],          -- label sql_server
+        'dm_os_performance_counters'                   AS [source],              -- label source
+        CONVERT(sysname, RTRIM(object_name)) + '/' +
+        CONVERT(sysname, RTRIM(counter_name))          AS [metric_name],         -- обязательно!
+        RTRIM(instance_name)                           AS [instance_name],       -- label instance_name
+        cntr_value                                     AS [metric_value]         -- обязательно!
+        FROM sys.dm_os_performance_counters
+    </Query>
+</Queries>
