@@ -15,16 +15,6 @@ import java.util.Map;
 /**
  * Преобразует ResultSet в Prometheus exposition-формат и
  * отправляет его в VictoriaMetrics.
- *
- *  Требования к ResultSet:
- *    • metric_name   – имя метрики (string). Если нет/пусто → «no_name_metric».
- *    • metric_value  – числовое значение.
- *  Все остальные столбцы автоматически превращаются в labels.
- *
- *  В результирующих лейблах всегда присутствуют:
- *    ci    – идентификатор конфигурации сервера (из InstanceConfig)
- *    reqId – идентификатор запроса
- *  ДОПОЛНЕНО: все пары из InstanceConfig.extraLabels добавляются как лейблы.
  */
 public class PrometheusResultWriter {
 
@@ -34,23 +24,51 @@ public class PrometheusResultWriter {
         this.destCfg = destCfg;
     }
 
-    /* ────────────────────────── public API ───────────────────────────── */
+    /** Теперь сюда тоже прокидывается resultExec */
+    public void write(InstanceConfig ic, String reqId, ResultSet rs, String resultExec) throws Exception {
+        if (!"Ok".equalsIgnoreCase(resultExec.trim())) {
+            LogService.errorf("[VM-SKIP] CI=%s, req=%s: Not sending to Victoria due to exec error: %s%n", ic.ci, reqId, resultExec);
+            return;
+        }
+        if (rs == null) {
+            LogService.errorf("[VM-SKIP] CI=%s, req=%s: ResultSet is null (exec error above).%n", ic.ci, reqId);
+            return;
+        }
 
-    /** Обработка одного (InstanceConfig, reqId, ResultSet) */
-    public void write(InstanceConfig ic, String reqId, ResultSet rs) throws Exception {
         StringBuilder body = new StringBuilder();
         ResultSetMetaData md = rs.getMetaData();
         int colCnt = md.getColumnCount();
         int rowCnt = 0;
 
         while (rs.next()) {
-            // -------- имя метрики (metric_name) --------
-            String metric = safeMetricName(getString(rs, "metric_name"));
-            body.append(metric)
-                    .append("{ci=\"").append(nullToEmpty(ic.ci))
-                    .append("\",reqId=\"").append(nullToEmpty(reqId)).append('"');
+            String metric = safeMetricName(rs.getString("metric_name"));
+            String value  = rs.getString("metric_value");
 
-            // -------- лейблы из InstanceConfig.extraLabels --------
+            body.append(metric)
+                    .append("{ci=\"").append(ic.ci)
+                    .append("\",reqId=\"").append(reqId).append("\"");
+
+            // Динамические лейблы из RS (кроме metric_name/metric_value/ci/reqId)
+            for (int i = 1; i <= colCnt; i++) {
+                String col = md.getColumnLabel(i);
+                if (col == null) col = md.getColumnName(i);
+                if (col == null) continue;
+
+                String colLower = col.toLowerCase(Locale.ROOT);
+                if (colLower.equals("metric_name") || colLower.equals("metric_value")) continue;
+                if (colLower.equals("ci") || colLower.equals("reqid")) continue;
+
+                String v = rs.getString(i);
+                if (v == null || v.isEmpty()) continue;
+
+                body.append(',')
+                        .append(safeLabelName(col))
+                        .append("=\"")
+                        .append(v.replace("\"", "\\\""))
+                        .append('"');
+            }
+
+            // Дополнительные статические лейблы из InstanceConfig (если есть)
             if (ic.extraLabels != null && !ic.extraLabels.isEmpty()) {
                 for (Map.Entry<String, String> e : ic.extraLabels.entrySet()) {
                     String k = e.getKey();
@@ -64,48 +82,15 @@ public class PrometheusResultWriter {
                 }
             }
 
-            // -------- динамические лейблы из ResultSet --------
-            for (int i = 1; i <= colCnt; i++) {
-                String col = md.getColumnLabel(i);
-                if (col == null || col.isBlank()) col = md.getColumnName(i);
-                if (col == null || col.isBlank()) continue;
-
-                String colLower = col.toLowerCase(Locale.ROOT);
-                if (colLower.equals("metric_name") || colLower.equals("metric_value"))
-                    continue; // не label
-                if (colLower.equals("ci") || colLower.equals("reqid"))
-                    continue; // добавлены вручную
-
-                String val = rs.getString(i);
-                if (val == null || val.isEmpty())
-                    continue;
-
-                body.append(',')
-                        .append(safeLabelName(col))
-                        .append("=\"")
-                        .append(val.replace("\"", "\\\""))
-                        .append('"');
-            }
-
-            // -------- значение (metric_value) --------
-            String value = getString(rs, "metric_value");
-            if (value == null || value.isBlank()) value = "0"; // перестраховка
             body.append("} ").append(value).append('\n');
-
             rowCnt++;
         }
 
         sendToVictoria(body.toString());
-
         LogService.printf("[RESP] (%d rows) sent to VictoriaMetrics for CI=%s, req=%s%n",
-                rowCnt, nullToEmpty(ic.ci), nullToEmpty(reqId));
+                rowCnt, ic.ci, reqId);
     }
 
-    /* ─────────────────────── helpers ─────────────────────── */
-
-    private static String nullToEmpty(String s) { return (s == null) ? "" : s; }
-
-    /** Санация имени метрики. */
     private static String safeMetricName(String raw) {
         if (raw == null) raw = "";
         String cleaned = raw.replaceAll("[^a-zA-Z0-9_:]", "_")
@@ -116,9 +101,7 @@ public class PrometheusResultWriter {
         return cleaned;
     }
 
-    /** Санация имени label-поля. */
     private static String safeLabelName(String raw) {
-        if (raw == null) raw = "";
         String cleaned = raw.replaceAll("[^a-zA-Z0-9_]", "_")
                 .replaceAll("_+", "_");
         if (cleaned.isEmpty() || Character.isDigit(cleaned.charAt(0)))
@@ -126,14 +109,9 @@ public class PrometheusResultWriter {
         return cleaned;
     }
 
-    /** Безопасное чтение строки по имени колонки (label/name). */
-    private static String getString(ResultSet rs, String column) {
-        try { return rs.getString(column); } catch (Exception ignore) { return null; }
-    }
-
-    /** HTTP-POST в VictoriaMetrics. */
     private void sendToVictoria(String body) throws Exception {
         if (body.isEmpty()) return;
+
         URL url = new URL(destCfg.prometheusUrl);
         HttpURLConnection con = (HttpURLConnection) url.openConnection();
         con.setRequestMethod("POST");
@@ -141,14 +119,17 @@ public class PrometheusResultWriter {
         con.setRequestProperty("Content-Type", "text/plain; version=0.0.4");
         con.setConnectTimeout(4_000);
         con.setReadTimeout(6_000);
+
         try (OutputStream os = con.getOutputStream()) {
             os.write(body.getBytes());
         }
-        int respCode = con.getResponseCode();
-        if (respCode < 200 || respCode > 299) {
-            LogService.error(String.format("[VM-ERROR] HTTP %d sending to Victoria: %s",
-                    respCode, destCfg.prometheusUrl));
+
+        int resp = con.getResponseCode();
+        if (resp < 200 || resp > 299) {
+            LogService.errorf("[VM-ERROR] HTTP %d sending to Victoria: %s%n",
+                    resp, destCfg.prometheusUrl);
         }
+
         con.disconnect();
     }
 }

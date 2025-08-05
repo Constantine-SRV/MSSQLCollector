@@ -42,22 +42,36 @@ public record ServerRequest(
         return chain;
     }
 
+    /** Выполнить один запрос для сервера */
     private void execOne(Connection conn, QueryRequest qr) {
+        String resultExec = "Ok";
+
         try (var st = conn.createStatement();
-             var rs = st.executeQuery(qr.queryText())) {
-
-            // ⬇⬇⬇ РАНЬШЕ передавали только ci; теперь передаём весь cfg,
-            // чтобы далее можно было использовать cfg.extraLabels в Prometheus.
-            responseProcessor.handle(cfg, qr.requestId(), rs);
-
+             var rs = st.executeQuery(qr.queryText())) { // rs в try-with-resources
+            responseProcessor.handle(cfg, qr.requestId(), rs, resultExec);
         } catch (SQLException ex) {
-            LogService.error(String.format("[CI=%s][ReqID=%s] SQL-ERROR: %s",
-                    cfg.ci, qr.requestId(), ex.getMessage()));
+            resultExec = "Error: " + ex.getMessage();
+            LogService.errorf("[CI=%s][ReqID=%s] SQL-ERROR: %s%n", cfg.ci, qr.requestId(), ex.getMessage());
+            // передача null в случае ошибки
+            try {
+                responseProcessor.handle(cfg, qr.requestId(), null, resultExec);
+            } catch (Exception handleEx) {
+                LogService.errorf("[CI=%s][ReqID=%s] handle error after SQL fail: %s%n",
+                        cfg.ci, qr.requestId(), handleEx.getMessage());
+            }
         } catch (Exception ex) {
-            LogService.error(String.format("[CI=%s][ReqID=%s] ERROR: %s",
-                    cfg.ci, qr.requestId(), ex.getMessage()));
+            resultExec = "Error: " + ex.getMessage();
+            LogService.errorf("[CI=%s][ReqID=%s] ERROR: %s%n", cfg.ci, qr.requestId(), ex.getMessage());
+            // аналогично передача null в случае ошибки
+            try {
+                responseProcessor.handle(cfg, qr.requestId(), null, resultExec);
+            } catch (Exception handleEx) {
+                LogService.errorf("[CI=%s][ReqID=%s] handle error after General fail: %s%n",
+                        cfg.ci, qr.requestId(), handleEx.getMessage());
+            }
         }
     }
+
 
     private static String buildUrl(InstanceConfig ic) {
         StringBuilder sb = new StringBuilder("jdbc:sqlserver://")

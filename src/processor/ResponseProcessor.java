@@ -31,63 +31,31 @@ public class ResponseProcessor {
     }
 
     /**
-     * Главный метод ― обрабатывает результат для одного (InstanceConfig, reqId, ResultSet)
-     * РАНЕЕ здесь был (ci, reqId, rs); теперь передаём весь ic.
+     * Главный метод — обрабатывает результат для одного (InstanceConfig, reqId, ResultSet, resultExec)
+     * resultExec всегда прокидывается дальше, даже если ошибка.
      */
-    public void handle(InstanceConfig ic, String reqId, ResultSet rs) throws Exception {
-        String type = (destCfg.type == null ? "" : destCfg.type.trim().toUpperCase());
-        switch (type) {
-            case "MSSQL" -> saveToMSSQL(ic.ci, reqId, rs);
-            case "MONGO" -> LogService.printf("[RESP] MONGO write not implemented for %s_%s%n", ic.ci, reqId);
-            case "PROMETHEUS" -> {
-                // Отправка в VictoriaMetrics (Prometheus exposition format)
+    public void handle(InstanceConfig ic, String reqId, ResultSet rs, String resultExec) throws Exception {
+        switch (destCfg.type.trim().toUpperCase()) {
+            case "MSSQL":
+                saveToMSSQL(ic.ci, reqId, rs, resultExec);
+                break;
+            case "PROMETHEUS":
                 PrometheusResultWriter writer = new PrometheusResultWriter(destCfg);
-                writer.write(ic, reqId, rs);
-            }
-            case "LOCALFILE" -> saveToLocalFile(ic.ci, reqId, rs);
-            default -> saveToLocalFile(ic.ci, reqId, rs);
+                writer.write(ic, reqId, rs, resultExec);
+                break;
+            case "MONGO":
+                LogService.printf("[RESP] MONGO write not implemented for %s_%s%n", ic.ci, reqId);
+                break;
+            case "LOCALFILE":
+            default:
+                saveToLocalFile(ic.ci, reqId, rs,resultExec); // для локального файла resultExec прокидывать не обязательно
         }
     }
 
-    /**
-     * Сохраняет результат в файл формата XML (для ручного анализа).
-     */
-    private void saveToLocalFile(String ci, String reqId, ResultSet rs) throws SQLException, IOException {
-        Path outDir = Paths.get(outDirName);
-        if (!Files.exists(outDir)) Files.createDirectory(outDir);
+    // Теперь этот метод принимает resultExec, но может и не использовать (решай сам)
 
-        File outFile = outDir.resolve(ci + "_" + reqId + ".xml").toFile();
-        try (BufferedWriter w = Files.newBufferedWriter(outFile.toPath(), StandardCharsets.UTF_8)) {
-            ResultSetMetaData md = rs.getMetaData();
-            int cols = md.getColumnCount();
-
-            // Декларация только для файла!
-            w.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Result>\n");
-            int rowCnt = 0;
-            while (rs.next()) {
-                w.write("  <Row>\n");
-                for (int c = 1; c <= cols; c++) {
-                    String col = md.getColumnLabel(c);
-                    if (col == null || col.isEmpty()) col = md.getColumnName(c);
-                    String val = rs.getString(c);
-                    w.write("    <" + col + ">");
-                    if (val != null) w.write(escape(val));
-                    w.write("</" + col + ">\n");
-                }
-                w.write("  </Row>\n");
-                rowCnt++;
-            }
-            w.write("</Result>\n");
-            LogService.printf("[RESP] %s_%s (%d rows) -> %s%n", ci, reqId, rowCnt, outFile.getName());
-        }
-    }
-
-    /**
-     * Сохраняет результат в MSSQL через хранимую процедуру.
-     * Передает параметры: CI, reqId, XML как строки.
-     * Декларация encoding НЕ добавляется (иначе ошибка "unable to switch the encoding").
-     */
-    private void saveToMSSQL(String ci, String reqId, ResultSet rs) {
+    protected void saveToMSSQL(String ci, String reqId, ResultSet rs, String resultExec) {
+        // Пример обработки resultExec:
         StringBuilder xml = new StringBuilder();
         int rowCnt = 0;
         try {
@@ -121,10 +89,11 @@ public class ResponseProcessor {
                 boolean isSP = sql.matches("(?i)^([\\[]?\\w+[\\]]?\\.)?[\\[]?\\w+[\\]]?$"); // примитивно: одно слово или schema.sp
 
                 if (isSP) {
-                    try (CallableStatement cs = conn.prepareCall("{call " + sql + " (?, ?, ?)}")) {
+                    try (CallableStatement cs = conn.prepareCall("{call " + sql + " (?, ?, ?, ?)}")) {
                         cs.setString(1, ci);
                         cs.setString(2, reqId);
                         cs.setString(3, xml.toString());
+                        cs.setString(4, resultExec);
                         cs.execute();
                     }
                 } else {
@@ -133,6 +102,7 @@ public class ResponseProcessor {
                         ps.setString(1, ci);
                         ps.setString(2, reqId);
                         ps.setString(3, xml.toString());
+                        ps.setString(4, resultExec);
                         ps.execute();
                     }
                 }
@@ -144,6 +114,40 @@ public class ResponseProcessor {
         } catch (Exception ex) {
             LogService.error(String.format("[CI=%s][ReqID=%s] ERROR: %s", ci, reqId, ex.getMessage()));
             ex.printStackTrace();
+        }
+        // ... твоя старая логика сохранения ...
+    }
+
+    /**
+     * Сохраняет результат в файл формата XML (для ручного анализа).
+     */
+    private void saveToLocalFile(String ci, String reqId, ResultSet rs,String resultExec) throws SQLException, IOException {
+        Path outDir = Paths.get(outDirName);
+        if (!Files.exists(outDir)) Files.createDirectory(outDir);
+
+        File outFile = outDir.resolve(ci + "_" + reqId + ".xml").toFile();
+        try (BufferedWriter w = Files.newBufferedWriter(outFile.toPath(), StandardCharsets.UTF_8)) {
+            ResultSetMetaData md = rs.getMetaData();
+            int cols = md.getColumnCount();
+
+            // Декларация только для файла!
+            w.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Result>\n");
+            int rowCnt = 0;
+            while (rs.next()) {
+                w.write("  <Row>\n");
+                for (int c = 1; c <= cols; c++) {
+                    String col = md.getColumnLabel(c);
+                    if (col == null || col.isEmpty()) col = md.getColumnName(c);
+                    String val = rs.getString(c);
+                    w.write("    <" + col + ">");
+                    if (val != null) w.write(escape(val));
+                    w.write("</" + col + ">\n");
+                }
+                w.write("  </Row>\n");
+                rowCnt++;
+            }
+            w.write("</Result>\n");
+            LogService.printf("[RESP] %s_%s (%d rows) -> %s%n", ci, reqId, rowCnt, outFile.getName());
         }
     }
 
