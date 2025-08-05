@@ -59,6 +59,7 @@ public class ResponseProcessor {
         StringBuilder xml = new StringBuilder();
         int rowCnt = 0;
         try {
+
             ResultSetMetaData md = rs.getMetaData();
             int cols = md.getColumnCount();
 
@@ -78,7 +79,8 @@ public class ResponseProcessor {
                 rowCnt++;
             }
             xml.append("</Result>\n");
-
+        } catch (Exception ex)  {}
+        try {
             // Отладочный вывод
             LogService.printf("[DEBUG] MSSQL Call: SQL=%s, ci=%s, reqId=%s, rows=%d, xml-len=%d\n",
                     destCfg.mssqlQuery, ci, reqId, rowCnt, xml.length());
