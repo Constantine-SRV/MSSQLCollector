@@ -17,6 +17,9 @@ public final class DbConnector {
      * {@link db.ServerRequest#execute(java.util.concurrent.Executor)} и
      * возвращает {@link CompletableFuture}, завершающийся успешным
      * подключением либо исключением.
+     *
+     * ВАЖНО: исключения НЕ проглатываются — future завершается exceptionally,
+     * чтобы вызывающий смог доставить текст ошибки до ResponseProcessor.
      */
     public static CompletableFuture<Connection> getConnectionAsync(
             String url, String user, String password) {
@@ -30,10 +33,13 @@ public final class DbConnector {
             } catch (ClassNotFoundException e) {
                 LogService.errorln("[DB-ERROR] JDBC driver not found. " +
                         "Проверьте, что mssql-jdbc.jar есть в classpath.");
+                // пробрасываем выше
                 throw new RuntimeException(e);
             } catch (Exception ex) {
+                // Подробный лог оставляем как есть (дубли не страшны по ТЗ)
                 LogService.errorf("[DB-ERROR] Can't connect: url=%s user=%s – %s%n",
                         url, user, ex.getMessage());
+                // пробрасываем выше — это ключ к доставке ошибки в ResponseProcessor
                 throw new RuntimeException(ex);
             }
         });

@@ -33,6 +33,7 @@ public class ResponseProcessor {
     /**
      * Главный метод — обрабатывает результат для одного (InstanceConfig, reqId, ResultSet, resultExec)
      * resultExec всегда прокидывается дальше, даже если ошибка.
+     * ВАЖНО: rs может быть null в случае ошибки (например, ошибка подключения или выполнения SQL).
      */
     public void handle(InstanceConfig ic, String reqId, ResultSet rs, String resultExec) throws Exception {
         switch (destCfg.type.trim().toUpperCase()) {
@@ -40,6 +41,7 @@ public class ResponseProcessor {
                 saveToMSSQL(ic.ci, reqId, rs, resultExec);
                 break;
             case "PROMETHEUS":
+                // Предполагается, что PrometheusResultWriter корректно обрабатывает rs == null и resultExec != "Ok"
                 PrometheusResultWriter writer = new PrometheusResultWriter(destCfg);
                 writer.write(ic, reqId, rs, resultExec);
                 break;
@@ -48,38 +50,49 @@ public class ResponseProcessor {
                 break;
             case "LOCALFILE":
             default:
-                saveToLocalFile(ic.ci, reqId, rs,resultExec); // для локального файла resultExec прокидывать не обязательно
+                saveToLocalFile(ic.ci, reqId, rs, resultExec);
         }
     }
 
-    // Теперь этот метод принимает resultExec, но может и не использовать (решай сам)
-
+    /**
+     * Сохранение результата в MSSQL (через SP или произвольный SQL).
+     * Теперь метод безопасен при rs == null: в таком случае в XML уходит пустое тело (<Result/>),
+     * а подробности ошибки — в параметр resultExec (например, "[DB-ERROR] ...").
+     */
     protected void saveToMSSQL(String ci, String reqId, ResultSet rs, String resultExec) {
-        // Пример обработки resultExec:
         StringBuilder xml = new StringBuilder();
         int rowCnt = 0;
         try {
+            // Генерируем XML только если rs != null
+            if (rs != null) {
+                ResultSetMetaData md = rs.getMetaData();
+                int cols = md.getColumnCount();
 
-            ResultSetMetaData md = rs.getMetaData();
-            int cols = md.getColumnCount();
-
-            // Без декларации encoding!
-            xml.append("<Result>\n");
-            while (rs.next()) {
-                xml.append("  <Row>\n");
-                for (int c = 1; c <= cols; c++) {
-                    String col = md.getColumnLabel(c);
-                    if (col == null || col.isEmpty()) col = md.getColumnName(c);
-                    String val = rs.getString(c);
-                    xml.append("    <").append(col).append(">");
-                    if (val != null) xml.append(escape(val));
-                    xml.append("</").append(col).append(">\n");
+                // Без декларации encoding!
+                xml.append("<Result>\n");
+                while (rs.next()) {
+                    xml.append("  <Row>\n");
+                    for (int c = 1; c <= cols; c++) {
+                        String col = md.getColumnLabel(c);
+                        if (col == null || col.isEmpty()) col = md.getColumnName(c);
+                        String val = rs.getString(c);
+                        xml.append("    <").append(col).append(">");
+                        if (val != null) xml.append(escape(val));
+                        xml.append("</").append(col).append(">\n");
+                    }
+                    xml.append("  </Row>\n");
+                    rowCnt++;
                 }
-                xml.append("  </Row>\n");
-                rowCnt++;
+                xml.append("</Result>\n");
+            } else {
+                // Ошибка — пустой результат; сам текст ошибки передаём через resultExec
+                xml.append("<Result/>\n");
             }
-            xml.append("</Result>\n");
-        } catch (Exception ex)  {}
+        } catch (Exception ex)  {
+            // Здесь не падаем: даже если построение XML не удалось, идём дальше и передаём то, что есть
+            LogService.errorf("[CI=%s][ReqID=%s] XML build error: %s%n", ci, reqId, ex.getMessage());
+        }
+
         try {
             // Отладочный вывод
             LogService.printf("[DEBUG] MSSQL Call: SQL=%s, ci=%s, reqId=%s, rows=%d, xml-len=%d\n",
@@ -99,6 +112,7 @@ public class ResponseProcessor {
                         cs.execute();
                     }
                 } else {
+                    // NB: комментарий ниже устарел — фактически 4 параметра, т.к. передаём resultExec
                     // считаем, что в sql три параметра типа ?, ?, ?
                     try (PreparedStatement ps = conn.prepareStatement(sql)) {
                         ps.setString(1, ci);
@@ -122,13 +136,26 @@ public class ResponseProcessor {
 
     /**
      * Сохраняет результат в файл формата XML (для ручного анализа).
+     * Теперь метод безопасен при rs == null: пишется пустой <Result/> и,
+     * опционально, комментарий с текстом ошибки (resultExec).
      */
-    private void saveToLocalFile(String ci, String reqId, ResultSet rs,String resultExec) throws SQLException, IOException {
+    private void saveToLocalFile(String ci, String reqId, ResultSet rs, String resultExec) throws SQLException, IOException {
         Path outDir = Paths.get(outDirName);
         if (!Files.exists(outDir)) Files.createDirectory(outDir);
 
         File outFile = outDir.resolve(ci + "_" + reqId + ".xml").toFile();
         try (BufferedWriter w = Files.newBufferedWriter(outFile.toPath(), StandardCharsets.UTF_8)) {
+            if (rs == null) {
+                // Делаем компактный файл с пустым результатом; полезно оставить текст ошибки в комментарии
+                w.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+                if (resultExec != null && !resultExec.isBlank()) {
+                    w.write("<!-- " + escape(resultExec) + " -->\n");
+                }
+                w.write("<Result/>\n");
+                LogService.printf("[RESP] %s_%s (ERROR, no rows) -> %s%n", ci, reqId, outFile.getName());
+                return;
+            }
+
             ResultSetMetaData md = rs.getMetaData();
             int cols = md.getColumnCount();
 
