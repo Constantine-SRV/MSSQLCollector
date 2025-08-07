@@ -28,7 +28,8 @@ public class PrometheusResultWriter {
     public void write(InstanceConfig ic, String reqId, ResultSet rs, String resultExec) throws Exception {
         if (isConnectError(resultExec)) {
             sendAvailabilityMetric(ic, reqId, 0);
-            LogService.printf("[RESP] availability=0 sent to VictoriaMetrics for CI=%s, req=%s%n", ic.ci, reqId);
+            LogService.printf("[RESP] availability=0 sent to VictoriaMetrics for CI=%s, req=%s%n",
+                    ic.ci, reqId);
             return;
         }
 
@@ -46,15 +47,17 @@ public class PrometheusResultWriter {
                 rowCount, ic.ci, reqId);
     }
 
-    /** Строит и отправляет метрику availability */
+    /* ===== availability ===== */
+
     private void sendAvailabilityMetric(InstanceConfig ic, String reqId, int availabilityValue) throws Exception {
         StringBuilder body = new StringBuilder("availability");
-        appendLabels(body, ic, reqId, null);
+        appendLabels(body, ic, reqId, null);   // reqId сейчас не добавляется
         body.append(' ').append(availabilityValue).append('\n');
         sendToVictoria(body.toString());
     }
 
-    /** Собирает метрики из ResultSet в формате Prometheus exposition */
+    /* ===== обычные метрики ===== */
+
     private String buildMetricsFromResultSet(InstanceConfig ic, String reqId, ResultSet rs) throws Exception {
         StringBuilder body = new StringBuilder();
         ResultSetMetaData md = rs.getMetaData();
@@ -62,24 +65,25 @@ public class PrometheusResultWriter {
 
         while (rs.next()) {
             String metric = safeMetricName(rs.getString("metric_name"));
-            String value = rs.getString("metric_value");
+            String value  = rs.getString("metric_value");
+
             body.append(metric);
-            appendLabels(body, ic, reqId, rs);
+            appendLabels(body, ic, reqId, rs); // reqId внутри больше не пишем
             body.append(' ').append(value).append('\n');
         }
 
         return body.toString();
     }
 
-    /**
-     * Универсальный метод добавления лейблов.
-     * Если ResultSet указан (не null), добавляет динамические лейблы из него.
-     * Всегда добавляет статические лейблы из InstanceConfig и стандартные (ci, reqId).
-     */
-    private void appendLabels(StringBuilder body, InstanceConfig ic, String reqId, ResultSet rs) throws Exception {
-        body.append("{ci=\"").append(ic.ci).append("\",reqId=\"").append(reqId).append('"');
+    /* ===== универсальное добавление лейблов (без reqId) ===== */
 
-        // Динамические лейблы из ResultSet
+    private void appendLabels(StringBuilder body, InstanceConfig ic, String /*unused*/ reqId,
+                              ResultSet rs) throws Exception {
+
+        // Стандартный обязательный лейбл ci
+        body.append("{ci=\"").append(ic.ci).append('"');
+
+        /* ---- динамические лейблы из ResultSet (если есть) ---- */
         if (rs != null) {
             ResultSetMetaData md = rs.getMetaData();
             int colCnt = md.getColumnCount();
@@ -91,7 +95,8 @@ public class PrometheusResultWriter {
 
                 String colLower = col.toLowerCase(Locale.ROOT);
                 if (colLower.equals("metric_name") || colLower.equals("metric_value")
-                        || colLower.equals("ci") || colLower.equals("reqid")) continue;
+                        || colLower.equals("ci") || colLower.equals("reqid"))
+                    continue;
 
                 String val = rs.getString(i);
                 if (val == null || val.isEmpty()) continue;
@@ -104,7 +109,7 @@ public class PrometheusResultWriter {
             }
         }
 
-        // Дополнительные статические лейблы из InstanceConfig
+        /* ---- статические extraLabels ---- */
         if (ic.extraLabels != null && !ic.extraLabels.isEmpty()) {
             for (Map.Entry<String, String> e : ic.extraLabels.entrySet()) {
                 String k = e.getKey();
@@ -122,7 +127,8 @@ public class PrometheusResultWriter {
         body.append('}');
     }
 
-    /** Простая эвристика ошибки подключения */
+    /* ===== утилиты ===== */
+
     private boolean isConnectError(String resultExec) {
         if (resultExec == null) return false;
         String err = resultExec.toLowerCase(Locale.ROOT);
@@ -165,7 +171,8 @@ public class PrometheusResultWriter {
 
         int resp = con.getResponseCode();
         if (resp < 200 || resp > 299) {
-            LogService.errorf("[VM-ERROR] HTTP %d sending to Victoria: %s%n", resp, destCfg.prometheusUrl);
+            LogService.errorf("[VM-ERROR] HTTP %d sending to Victoria: %s%n",
+                    resp, destCfg.prometheusUrl);
         }
 
         con.disconnect();
