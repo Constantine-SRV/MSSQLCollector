@@ -6,7 +6,10 @@ import processor.ResponseProcessor;
 import java.security.Security;          // <--  NEW
 import java.util.List;
 import java.util.concurrent.*;
-
+ /*
+        Get-ChildItem -File err_* | Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-48) } | Remove-Item -Force
+        Get-ChildItem -File log_* | Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-48) } | Remove-Item -Force
+  */
 /** Точка входа приложения. */
 public class Main {
 
@@ -26,7 +29,8 @@ public class Main {
     }
 
     public static void main(String[] args) throws Exception {
-        LogService.println("Version 2025-08-05-labels_1 Started");
+        LogService.println("Version 2025-08-08-log Started");
+
 
         String cfgFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig.xml";
         AppConfig cfg = AppConfigReader.read(cfgFile);

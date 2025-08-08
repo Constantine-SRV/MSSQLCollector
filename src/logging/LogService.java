@@ -87,11 +87,11 @@ public final class LogService {
 
         // Итоговый статус
         if (consoleEnabled && fileEnabled) {
-            System.out.println("[LOG] Destination: Console + LocalFile (split info/error)");
+            System.out.println("[LOG] Destination: Console + LocalFile");
         } else if (consoleEnabled) {
             System.out.println("[LOG] Destination: Console");
         } else if (fileEnabled) {
-            System.out.println("[LOG] Destination: LocalFile only (split info/error)");
+            System.out.println("[LOG] Destination: LocalFile only");
         } else {
             System.out.println("[LOG] Destination: (none) — enabling Console fallback");
             consoleEnabled = true;
