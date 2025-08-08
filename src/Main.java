@@ -3,7 +3,7 @@ import logging.LogService;
 import model.*;
 import processor.ResponseProcessor;
 
-import java.security.Security;          // <‑‑  NEW
+import java.security.Security;          // <--  NEW
 import java.util.List;
 import java.util.concurrent.*;
 
@@ -11,22 +11,22 @@ import java.util.concurrent.*;
 public class Main {
 
     /* ------------------------------------------------------------------
-       Глобально снимаем ВСЕ ограничения Java‑TLS для данного процесса.
+       Глобально снимаем ВСЕ ограничения Java-TLS для данного процесса.
        Делается один раз при загрузке класса Main, ещё до метода main().
        ------------------------------------------------------------------ */
     static {
         // 1. Запреты на использования «опасных» алгоритмов в канале TLS
         Security.setProperty("jdk.tls.disabledAlgorithms", "");
 
-        // 2. Запреты на алгоритмы у сертификатов (SHA‑1, MD5 и т.д.)
+        // 2. Запреты на алгоритмы у сертификатов (SHA-1, MD5 и т.д.)
         Security.setProperty("jdk.certpath.disabledAlgorithms", "");
 
-        // 3. (опционально) блокировки в Jar‑подписях
+        // 3. (опционально) блокировки в Jar-подписях
         Security.setProperty("jdk.jar.disabledAlgorithms", "");
     }
 
     public static void main(String[] args) throws Exception {
-        LogService.println("Version 2025‑08‑05‑labels_1 Started");
+        LogService.println("Version 2025-08-05-labels_1 Started");
 
         String cfgFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig.xml";
         AppConfig cfg = AppConfigReader.read(cfgFile);
@@ -34,6 +34,14 @@ public class Main {
             cfg = new AppConfig();                  // дефолт
             AppConfigWriter.write(cfg, cfgFile);
             LogService.println("Default config created: " + cfgFile);
+        }
+
+        // <-- ВАЖНО: инициализация LogService из секции <LogsDestination>
+        try {
+            LogService.init(cfg.logsDestination);
+        } catch (Exception e) {
+            // если что-то пошло не так — логгер остаётся в режиме Console
+            LogService.errorf("[LOG] init failed: %s%n", e.getMessage());
         }
 
         switch (cfg.taskName.toUpperCase()) {
@@ -70,14 +78,14 @@ public class Main {
 
         long execMs = (System.nanoTime() - t0Exec) / 1_000_000;
         double avgPerSrv = servers.isEmpty() ? 0.0 : (double) execMs / servers.size();
-        LogService.printf("[TIME] Parallel block: %d ms (≈ %.2f ms / server)%n",
+        LogService.printf("[TIME] Parallel block: %d ms (≈ %.2f ms / server)%n",
                 execMs, avgPerSrv);
 
         pool.shutdown();
 
         /* ── 4. Финальная статистика ──────────────────────────── */
         long totalMs = (System.nanoTime() - t0Total) / 1_000_000;
-        LogService.printf("[TIME] runFullPipeline finished in %d ms (%.2f s)%n",
+        LogService.printf("[TIME] runFullPipeline finished in %d ms (%.2f s)%n",
                 totalMs, totalMs / 1000.0);
     }
 
