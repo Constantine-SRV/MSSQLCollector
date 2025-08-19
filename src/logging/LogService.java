@@ -10,18 +10,16 @@ import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 /**
- * Простой сервис логирования с поддержкой нескольких назначений:
+ * Сервис логирования с поддержкой нескольких назначений:
  *   - Console
  *   - LOCALFILE
  *
  * Можно перечислять несколько типов через ';' / ',' / пробел:
  *   <Type>Console;LOCALFILE</Type>
  *
- * В файловом режиме создаёт ДВА файла в текущем каталоге:
- *   - log_yyyyMMdd_HHmmss.txt     — для обычных сообщений
- *   - error_yyyyMMdd_HHmmss.txt   — для ошибок
- *
- * Первая строка до init(...) уходит только в консоль — это ожидаемо.
+ * В файловом режиме:
+ *   - log_<sessionTimestamp>.txt     — обычные сообщения (создаётся при init)
+ *   - error_<sessionTimestamp>.txt   — ошибки (создаётся ЛЕНИВО при первой ошибке)
  */
 public final class LogService {
 
@@ -32,10 +30,11 @@ public final class LogService {
     private static volatile boolean consoleEnabled = true;   // дефолт — консоль
     private static volatile boolean fileEnabled    = false;
 
-    // Раздельные файлы для info и error
     private static volatile BufferedWriter infoWriter  = null;
     private static volatile BufferedWriter errorWriter = null;
 
+    // Единый таймстамп сессии для согласованных имён файлов
+    private static volatile String sessionTs = null;
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
 
     /**
@@ -61,18 +60,17 @@ public final class LogService {
         }
 
         BufferedWriter nextInfo = null;
-        BufferedWriter nextErr  = null;
+
+        // Всегда новый таймстамп на инициализацию (для парных имён)
+        sessionTs = LocalDateTime.now().format(TS);
 
         if (nextFile) {
-            String ts = LocalDateTime.now().format(TS);
-            String infoName  = "log_"   + ts + ".txt";
-            String errorName = "error_" + ts + ".txt";
+            String infoName  = "log_" + sessionTs + ".txt";
             try {
-                nextInfo = new BufferedWriter(new FileWriter(infoName,  true));
-                nextErr  = new BufferedWriter(new FileWriter(errorName, true));
+                nextInfo = new BufferedWriter(new FileWriter(infoName, true));
             } catch (IOException e) {
                 nextFile = false;
-                System.err.printf("[LOG] Can't open log files: %s%n", e.getMessage());
+                System.err.printf("[LOG] Can't open log file '%s': %s%n", infoName, e.getMessage());
             }
         }
 
@@ -83,15 +81,15 @@ public final class LogService {
         consoleEnabled = nextConsole;
         fileEnabled    = nextFile;
         infoWriter     = nextInfo;
-        errorWriter    = nextErr;
+        errorWriter    = null; // сбрасываем — теперь он ленивый
 
         // Итоговый статус
         if (consoleEnabled && fileEnabled) {
-            System.out.println("[LOG] Destination: Console + LocalFile");
+            System.out.println("[LOG] Destination: Console + LocalFile (split info/error, lazy error file)");
         } else if (consoleEnabled) {
             System.out.println("[LOG] Destination: Console");
         } else if (fileEnabled) {
-            System.out.println("[LOG] Destination: LocalFile only");
+            System.out.println("[LOG] Destination: LocalFile only (split info/error, lazy error file)");
         } else {
             System.out.println("[LOG] Destination: (none) — enabling Console fallback");
             consoleEnabled = true;
@@ -132,18 +130,33 @@ public final class LogService {
 
         // Файлы
         if (fileEnabled) {
-            BufferedWriter w = isError ? errorWriter : infoWriter;
-            if (w != null) {
-                try {
+            try {
+                if (isError) {
+                    ensureErrorWriter(); // лениво создаём error-файл
+                }
+                BufferedWriter w = isError ? errorWriter : infoWriter;
+                if (w != null) {
                     synchronized (LogService.class) {
                         w.write(text);
                         w.flush();
                     }
-                } catch (IOException e) {
-                    // если файловая запись упала — предупреждаем и дублируем в консоль
-                    System.err.printf("[LOG] File logging failed: %s%n", e.getMessage());
-                    System.err.print(text);
                 }
+            } catch (IOException e) {
+                // если файловая запись упала — предупредим и дублируем в консоль
+                System.err.printf("[LOG] File logging failed: %s%n", e.getMessage());
+                System.err.print(text);
+            }
+        }
+    }
+
+    // Ленивая и потокобезопасная инициализация errorWriter
+    private static void ensureErrorWriter() throws IOException {
+        if (errorWriter != null) return;
+        synchronized (LogService.class) {
+            if (errorWriter == null) {
+                // sessionTs уже установлен при init
+                String errorName = "error_" + sessionTs + ".txt";
+                errorWriter = new BufferedWriter(new FileWriter(errorName, true));
             }
         }
     }
