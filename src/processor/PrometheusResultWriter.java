@@ -6,11 +6,17 @@ import model.InstanceConfig;
 
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Преобразует ResultSet в Prometheus exposition-формат и
@@ -20,8 +26,19 @@ public class PrometheusResultWriter {
 
     private final DestinationConfig destCfg;
 
+    // === NEW: список конечных точек вместо одного URL ===
+    private final List<URI> endpoints;
+
     public PrometheusResultWriter(DestinationConfig destCfg) {
         this.destCfg = destCfg;
+        // === NEW: парсинг нескольких адресов из <PrometheusUrl>, разделители ';' или ',' ===
+        this.endpoints = parseEndpoints(destCfg.prometheusUrl);
+        if (endpoints.isEmpty()) {
+            LogService.errorf("PrometheusResultWriter: no valid endpoints parsed from <PrometheusUrl>: %s%n",
+                    destCfg.prometheusUrl);
+        } else {
+            LogService.printf("PrometheusResultWriter endpoints: %s%n", endpoints);
+        }
     }
 
     /** Главный метод отправки метрик */
@@ -154,25 +171,65 @@ public class PrometheusResultWriter {
         return cleaned;
     }
 
-    private void sendToVictoria(String body) throws Exception {
-        if (body.isEmpty()) return;
+    // === NEW: отправка на несколько адресов (парсинг PrometheusUrl) ===
+    private static List<URI> parseEndpoints(String raw) {
+        if (raw == null) return List.of();
+        return Arrays.stream(raw.split("[;,]"))   // поддержка ; и ,
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(s -> {
+                    try {
+                        return URI.create(s);
+                    } catch (IllegalArgumentException iae) {
+                        LogService.errorf("PrometheusResultWriter: bad PrometheusUrl item: %s (%s)%n",
+                                s, iae.getMessage());
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    }
 
-        URL url = new URL(destCfg.prometheusUrl);
+    // === NEW: исходный метод теперь рассылает на все эндпоинты ===
+    private void sendToVictoria(String body) throws Exception {
+        if (body == null || body.isEmpty()) return;
+
+        if (endpoints.isEmpty()) {
+            LogService.errorf("PrometheusResultWriter: no endpoints to send. Raw <PrometheusUrl>: %s%n",
+                    destCfg.prometheusUrl);
+            return;
+        }
+
+        for (URI endpoint : endpoints) {
+            try {
+                postOnce(endpoint, body);
+                LogService.printf("[VM-OK] sent to %s%n", endpoint);
+            } catch (Exception ex) {
+                LogService.errorf("[VM-ERROR] sending to %s failed: %s%n", endpoint, ex.toString());
+            }
+        }
+    }
+
+    // === NEW: один POST в конкретный эндпоинт ===
+    private static void postOnce(URI endpoint, String body) throws Exception {
+        URL url = endpoint.toURL();
         HttpURLConnection con = (HttpURLConnection) url.openConnection();
         con.setRequestMethod("POST");
         con.setDoOutput(true);
-        con.setRequestProperty("Content-Type", "text/plain; version=0.0.4");
+        con.setRequestProperty("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
         con.setConnectTimeout(4000);
         con.setReadTimeout(6000);
 
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        con.setFixedLengthStreamingMode(bytes.length);
+
         try (OutputStream os = con.getOutputStream()) {
-            os.write(body.getBytes());
+            os.write(bytes);
         }
 
         int resp = con.getResponseCode();
         if (resp < 200 || resp > 299) {
-            LogService.errorf("[VM-ERROR] HTTP %d sending to Victoria: %s%n",
-                    resp, destCfg.prometheusUrl);
+            LogService.errorf("[VM-ERROR] HTTP %d sending to Victoria: %s%n", resp, endpoint);
         }
 
         con.disconnect();
