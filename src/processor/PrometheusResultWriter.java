@@ -11,6 +11,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.sql.Timestamp;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -80,16 +81,54 @@ public class PrometheusResultWriter {
         ResultSetMetaData md = rs.getMetaData();
         int colCnt = md.getColumnCount();
 
+        // Проверяем наличие колонки timestamp
+        int timestampColumnIndex = -1;
+        for (int i = 1; i <= colCnt; i++) {
+            String colName = md.getColumnLabel(i);
+            if (colName == null || colName.isBlank()) colName = md.getColumnName(i);
+            if (colName != null && colName.toLowerCase(Locale.ROOT).equals("timestamp")) {
+                timestampColumnIndex = i;
+                break;
+            }
+        }
+
         while (rs.next()) {
             String metric = safeMetricName(rs.getString("metric_name"));
             String value  = rs.getString("metric_value");
 
             body.append(metric);
             appendLabels(body, ic, reqId, rs); // reqId внутри больше не пишем
-            body.append(' ').append(value).append('\n');
+            body.append(' ').append(value);
+
+            // Добавляем timestamp если есть
+            if (timestampColumnIndex > 0) {
+                Long timestampMs = extractTimestamp(rs, timestampColumnIndex);
+                if (timestampMs != null) {
+                    body.append(' ').append(timestampMs);
+                }
+            }
+
+            body.append('\n');
         }
 
         return body.toString();
+    }
+
+    /**
+     * Извлекает timestamp из ResultSet и конвертирует в миллисекунды для Prometheus
+     */
+    private Long extractTimestamp(ResultSet rs, int columnIndex) {
+        try {
+            // Пробуем получить как Timestamp (стандартный тип для datetime в JDBC)
+            Timestamp ts = rs.getTimestamp(columnIndex);
+            if (ts != null) {
+                return ts.getTime(); // возвращает миллисекунды с 1970-01-01
+            }
+        } catch (Exception e) {
+            LogService.errorf("[VM-WARN] Failed to extract timestamp from column %d: %s%n",
+                    columnIndex, e.getMessage());
+        }
+        return null;
     }
 
     /* ===== универсальное добавление лейблов (без reqId) ===== */
@@ -111,8 +150,10 @@ public class PrometheusResultWriter {
                 if (col == null) continue;
 
                 String colLower = col.toLowerCase(Locale.ROOT);
+                // Пропускаем служебные поля и timestamp
                 if (colLower.equals("metric_name") || colLower.equals("metric_value")
-                        || colLower.equals("ci") || colLower.equals("reqid"))
+                        || colLower.equals("ci") || colLower.equals("reqid")
+                        || colLower.equals("timestamp"))
                     continue;
 
                 String val = rs.getString(i);
