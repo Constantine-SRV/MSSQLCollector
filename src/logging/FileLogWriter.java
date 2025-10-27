@@ -7,6 +7,7 @@ import java.time.format.DateTimeFormatter;
 
 /**
  * Запись строк в обычный лог и лог ошибок. Реализует “ленивое” открытие.
+ * не используется но пускай пока полежит в проекте
  */
 public class FileLogWriter {
     private static final DateTimeFormatter TS_FMT = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm");
