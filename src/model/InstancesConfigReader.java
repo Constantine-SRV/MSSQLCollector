@@ -10,21 +10,31 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.*;
 
 /**
- * Читает список инстансов MSSQL из источника, заданного в AppConfig:
- *  - MSSQL: выполняет запрос и мапит колонки в поля {@link InstanceConfig}
- *  - LocalFile: читает локальный XML
- *  - MONGO: (заглушка)
+ * Читает список инстансов из источника, заданного в AppConfig:
+ *  - MSSQL     : выполняет запрос (драйвер mssql-jdbc)
+ *  - OCEANBASE : выполняет запрос (драйвер mysql-connector-j)
+ *  - LocalFile : читает локальный XML
+ *  - MONGO     : (заглушка)
  *
- * Новое: любые дополнительные столбцы (не входящие в стандартный набор полей)
- * при чтении из MSSQL автоматически сохраняются в  extraLabels.
+ * Дополнительные опциональные колонки:
+ *  - dbType   / db_type  → InstanceConfig.dbType
+ *  - tenant              → InstanceConfig.tenant
+ *  - cluster             → InstanceConfig.cluster
+ *
+ * Все остальные не-стандартные непустые столбцы автоматически сохраняются в extraLabels.
+ *
  * При чтении из локального XML поддерживается блок:
  *
- * <ExtraLabels>
- *    <Label key="env">prod</Label>
- *    <Label key="dc">MSK-1</Label>
- * </ExtraLabels>
- *
- * Значения пустые/NULL — игнорируются.
+ * <Instance>
+ *    ...
+ *    <DbType>OCEANBASE</DbType>
+ *    <Tenant>business_tenant</Tenant>
+ *    <Cluster>obcluster</Cluster>
+ *    <ExtraLabels>
+ *       <Label key="env">prod</Label>
+ *       <Label key="dc">MSK-1</Label>
+ *    </ExtraLabels>
+ * </Instance>
  */
 public final class InstancesConfigReader {
 
@@ -41,9 +51,11 @@ public final class InstancesConfigReader {
         }
         String type = sc.type.trim().toUpperCase(Locale.ROOT);
         switch (type) {
-            case "MSSQL"     -> { return readFromMSSQL(sc); }
-            case "LOCALFILE" -> { return readFromLocalFile(sc); }
-            case "FILE"      -> { return readFromLocalFile(sc); } // синоним
+            case "MSSQL"     -> { return readFromJdbc(sc, DbType.MSSQL); }
+            case "OCEANBASE", "OB"
+                             -> { return readFromJdbc(sc, DbType.OCEANBASE); }
+            case "LOCALFILE",
+                 "FILE"      -> { return readFromLocalFile(sc); }
             case "MONGO"     -> {
                 LogService.println("InstancesConfigReader: MONGO source is not implemented yet.");
                 return List.of();
@@ -55,16 +67,25 @@ public final class InstancesConfigReader {
         }
     }
 
-    /* ======================== MSSQL ========================= */
+    /* ======================== JDBC (MSSQL / OCEANBASE) ========================= */
 
-    private static List<InstanceConfig> readFromMSSQL(SourceConfig sc) throws Exception {
+    private static List<InstanceConfig> readFromJdbc(SourceConfig sc, DbType srcDbType) throws Exception {
         List<InstanceConfig> list = new ArrayList<>();
 
         String url = sc.mssqlConnectionString;
         String sql = sc.mssqlQuery;
         if (url == null || url.isBlank() || sql == null || sql.isBlank()) {
-            LogService.errorln("InstancesConfigReader(MSSQL): empty connection string or query.");
+            LogService.errorf("InstancesConfigReader(%s): empty connection string or query.%n", srcDbType);
             return list;
+        }
+
+        // Явная загрузка драйвера — на случай fat-jar / нестандартного classloader
+        try {
+            Class.forName(srcDbType.driverClass());
+        } catch (ClassNotFoundException e) {
+            LogService.errorf("InstancesConfigReader(%s): JDBC driver not found: %s%n",
+                    srcDbType, srcDbType.driverClass());
+            throw e;
         }
 
         try (Connection c = DriverManager.getConnection(url);
@@ -77,7 +98,7 @@ public final class InstancesConfigReader {
             while (rs.next()) {
                 InstanceConfig ic = new InstanceConfig();
 
-                // ---- стандартные поля (оставляем как и раньше) ----
+                // ---- стандартные поля ----
                 ic.ci           = pickStr(rs, md, "ci", "CI", "id", "Id");
                 ic.instanceName = pickStr(rs, md, "instanceName", "InstanceName", "instance", "server", "servername", "ServerName", "host");
                 ic.userName     = pickStr(rs, md, "userName", "UserName", "user", "login");
@@ -92,11 +113,24 @@ public final class InstancesConfigReader {
                     }
                 }
 
-                // ---- дополнительные лейблы (автоматически) ----
-                // все не-стандартные НЕПУСТЫЕ столбцы -> extraLabels
+                // ---- NEW: dbType / tenant / cluster ----
+                String dbTypeStr = pickStr(rs, md, "dbType", "DbType", "db_type", "DBType");
+                // Если колонка вообще отсутствует / пустая — для MSSQL-источника считаем MSSQL,
+                // для OCEANBASE-источника по умолчанию ставим OCEANBASE (логичный дефолт).
+                ic.dbType = (dbTypeStr == null || dbTypeStr.isBlank())
+                        ? srcDbType
+                        : DbType.parse(dbTypeStr);
+
+                ic.tenant  = nullIfBlank(pickStr(rs, md, "tenant",  "Tenant",  "ob_tenant"));
+                ic.cluster = nullIfBlank(pickStr(rs, md, "cluster", "Cluster", "ob_cluster"));
+
+                // ---- дополнительные лейблы (всё нестандартное → extraLabels) ----
                 Set<String> std = Set.of(
                         "ci", "instancename", "instance", "server", "servername", "host",
-                        "port", "username", "user", "login", "password", "pwd"
+                        "port", "username", "user", "login", "password", "pwd",
+                        "dbtype", "db_type",
+                        "tenant", "ob_tenant",
+                        "cluster", "ob_cluster"
                 );
                 for (int i = 1; i <= colCount; i++) {
                     String col = md.getColumnLabel(i);
@@ -111,21 +145,20 @@ public final class InstancesConfigReader {
                     val = val.trim();
                     if (val.isEmpty()) continue;
 
-                    // "varchar(8000)" по смыслу: мягкое усечение
                     if (val.length() > 8000) val = val.substring(0, 8000);
                     ic.extraLabels.put(col, val);
                 }
 
                 // лёгкая валидация
                 if (ic.ci == null || ic.ci.isBlank() || ic.instanceName == null || ic.instanceName.isBlank()) {
-                    LogService.errorln("InstancesConfigReader(MSSQL): row skipped (ci/instanceName is empty).");
+                    LogService.errorf("InstancesConfigReader(%s): row skipped (ci/instanceName is empty).%n", srcDbType);
                     continue;
                 }
 
                 list.add(ic);
             }
 
-            LogService.printf("InstancesConfigReader: loaded %d servers from MSSQL.%n", list.size());
+            LogService.printf("InstancesConfigReader: loaded %d servers from %s.%n", list.size(), srcDbType);
             return list;
         }
     }
@@ -164,6 +197,12 @@ public final class InstancesConfigReader {
                 try { ic.port = Integer.parseInt(portStr); } catch (NumberFormatException ignore) {}
             }
 
+            // NEW: DbType / Tenant / Cluster
+            String dbTypeStr = text(el, "DbType");
+            ic.dbType  = (dbTypeStr.isEmpty()) ? DbType.MSSQL : DbType.parse(dbTypeStr);
+            ic.tenant  = nullIfBlank(text(el, "Tenant"));
+            ic.cluster = nullIfBlank(text(el, "Cluster"));
+
             // ExtraLabels (необязательно)
             NodeList labelsBlocks = el.getElementsByTagName("ExtraLabels");
             if (labelsBlocks.getLength() > 0) {
@@ -195,7 +234,6 @@ public final class InstancesConfigReader {
 
     /* ======================== helpers ========================= */
 
-    /** Возвращает содержимое первого найденного тега, иначе пустую строку. */
     private static String text(Element el, String tag) {
         NodeList nl = el.getElementsByTagName(tag);
         if (nl.getLength() == 0) return "";
@@ -203,12 +241,11 @@ public final class InstancesConfigReader {
         return s == null ? "" : s.trim();
     }
 
-    /**
-     * Пытается взять строковое значение из любого из указанных имён колонок.
-     * Возвращает null, если ни одно имя не найдено или значение NULL.
-     */
+    private static String nullIfBlank(String s) {
+        return (s == null || s.isBlank()) ? null : s.trim();
+    }
+
     private static String pickStr(ResultSet rs, ResultSetMetaData md, String... names) throws SQLException {
-        // Предварительно построим map: lower(label/name) -> index
         Map<String, Integer> byName = new HashMap<>();
         int cols = md.getColumnCount();
         for (int i = 1; i <= cols; i++) {

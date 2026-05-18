@@ -1,5 +1,6 @@
 package db;
 
+import model.DbType;
 import model.InstanceConfig;
 import model.QueryRequest;
 import processor.ResponseProcessor;
@@ -14,9 +15,8 @@ import java.util.concurrent.Executor;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Задача на выполнение набора запросов для одного инстанса MSSQL.
- * Используется в {@link Main}: последовательно выполняет запросы и
- * передаёт результаты в {@link processor.ResponseProcessor}.
+ * Задача на выполнение набора запросов для одного инстанса (MSSQL/OceanBase).
+ * Последовательно выполняет запросы и передаёт результаты в {@link processor.ResponseProcessor}.
  */
 public record ServerRequest(
         InstanceConfig cfg,
@@ -25,21 +25,18 @@ public record ServerRequest(
 ) {
 
     public CompletableFuture<Void> execute(Executor executor) {
-        String url = buildUrl(cfg);
-        LogService.printf("[START] CI=%s url=%s%n", cfg.ci, url);
+        DbType dbType = cfg.dbType == null ? DbType.MSSQL : cfg.dbType;
+        String url = buildUrl(cfg, dbType);
+        String effectiveUser = buildUserName(cfg, dbType);
+        LogService.printf("[START] CI=%s dbType=%s url=%s user=%s%n",
+                cfg.ci, dbType, url, effectiveUser);
 
-        // 1) Получаем подключение асинхронно
-        // 2) Если подключение удалось — запускаем запросы последовательно
-        // 3) В ЛЮБОМ случае закрываем соединение
-        // 4) Если подключение НЕ удалось — exceptionally: раздаём ошибку всем reqId
-        return DbConnector.getConnectionAsync(url, cfg.userName, cfg.password)
+        return DbConnector.getConnectionAsync(dbType, url, effectiveUser, cfg.password)
                 .thenCompose(conn -> runSequentially(conn, executor)
                         .whenComplete((v, ex) -> closeSilently(conn)))
                 .exceptionally(ex -> {
-                    // Формируем единый текст ошибки подключения и записываем его как resultExec
-                    String errorText = formatConnectError(url, cfg.userName, ex);
+                    String errorText = formatConnectError(url, effectiveUser, ex);
                     reportConnectErrorToAllQueries(errorText);
-                    // Возвращаем null, так как тип CompletableFuture<Void>
                     return null;
                 });
     }
@@ -58,12 +55,11 @@ public record ServerRequest(
         String resultExec = "Ok";
 
         try (var st = conn.createStatement();
-             var rs = st.executeQuery(qr.queryText())) { // rs в try-with-resources
+             var rs = st.executeQuery(qr.queryText())) {
             responseProcessor.handle(cfg, qr.requestId(), rs, resultExec);
         } catch (SQLException ex) {
             resultExec = "Error: " + ex.getMessage();
             LogService.errorf("[CI=%s][ReqID=%s] SQL-ERROR: %s%n", cfg.ci, qr.requestId(), ex.getMessage());
-            // передача null в случае ошибки
             try {
                 responseProcessor.handle(cfg, qr.requestId(), null, resultExec);
             } catch (Exception handleEx) {
@@ -73,7 +69,6 @@ public record ServerRequest(
         } catch (Exception ex) {
             resultExec = "Error: " + ex.getMessage();
             LogService.errorf("[CI=%s][ReqID=%s] ERROR: %s%n", cfg.ci, qr.requestId(), ex.getMessage());
-            // аналогично передача null в случае ошибки
             try {
                 responseProcessor.handle(cfg, qr.requestId(), null, resultExec);
             } catch (Exception handleEx) {
@@ -85,17 +80,11 @@ public record ServerRequest(
 
     /* ===================== CONNECT ERROR HANDLING ===================== */
 
-    /**
-     * Формирует человекочитаемое сообщение об ошибке подключения без секретов.
-     * Пример: "[DB-ERROR] Can't connect: url=...; user=... – <rootCause>"
-     */
     private static String formatConnectError(String url, String user, Throwable ex) {
         String root = rootCause(ex).getMessage();
-        // Ставим ; между полями как в существующем логе, чтобы было привычно.
         return String.format("[DB-ERROR] Can't connect: url=%s; user=%s – %s", url, user, root);
     }
 
-    /** Достаём корневую причину из цепочки CompletionException/RuntimeException и т.п. */
     private static Throwable rootCause(Throwable t) {
         Throwable cur = t;
         while (cur.getCause() != null && cur.getCause() != cur) {
@@ -104,17 +93,11 @@ public record ServerRequest(
         return cur;
     }
 
-    /**
-     * Раздаёт ошибку подключения по всем запросам (reqId) данного сервера,
-     * вызывая общий обработчик результатов.
-     */
     private void reportConnectErrorToAllQueries(String errorText) {
-        // Лог один раз на сервер (дубли допустимы по ТЗ; при желании можно удалить эту строку)
         LogService.errorf("[CI=%s] CONNECT-ERROR: %s%n", cfg.ci, errorText);
 
         for (QueryRequest qr : queries) {
             try {
-                // rs = null, resultExec = текст ошибки подключения
                 responseProcessor.handle(cfg, qr.requestId(), null, errorText);
             } catch (Exception handleEx) {
                 LogService.errorf("[CI=%s][ReqID=%s] handle error after CONNECT fail: %s%n",
@@ -123,18 +106,54 @@ public record ServerRequest(
         }
     }
 
-    /* ===================== URL BUILD / CLOSE ===================== */
+    /* ===================== URL / USER / CLOSE ===================== */
 
-    private static String buildUrl(InstanceConfig ic) {
-        StringBuilder sb = new StringBuilder("jdbc:sqlserver://")
-                .append(requireNonNull(ic.instanceName));
+    /**
+     * Строит JDBC URL для соответствующего типа СУБД.
+     *
+     *  - MSSQL    : jdbc:sqlserver://host[:port];encrypt=false;trustServerCertificate=true + enrich
+     *  - OCEANBASE: jdbc:mysql://host[:port]/?useSSL=false&allowPublicKeyRetrieval=true&...
+     */
+    private static String buildUrl(InstanceConfig ic, DbType dbType) {
+        requireNonNull(ic.instanceName, "instanceName");
+        if (dbType == DbType.OCEANBASE) {
+            StringBuilder sb = new StringBuilder("jdbc:mysql://").append(ic.instanceName);
+            if (ic.port != null) sb.append(':').append(ic.port);
+            // Базовые безопасные параметры для OB-прокси
+            sb.append("/?useSSL=false")
+              .append("&allowPublicKeyRetrieval=true")
+              .append("&characterEncoding=utf8")
+              .append("&connectTimeout=5000")
+              .append("&socketTimeout=15000");
+            return sb.toString();
+        }
+        // MSSQL (default) — сохраняем существующее поведение
+        StringBuilder sb = new StringBuilder("jdbc:sqlserver://").append(ic.instanceName);
         if (ic.port != null) sb.append(':').append(ic.port);
         sb.append(";encrypt=false;trustServerCertificate=true");
-        String baseConnStr = sb.toString();
+        return MssqlConnectionStringEnricher.enrich(sb.toString());
+    }
 
-        // Вызовите энричер, чтобы добавить encrypt, trustServerCertificate, applicationName и т.д.
-        String enriched = db.MssqlConnectionStringEnricher.enrich(baseConnStr);
-        return enriched;
+    /**
+     * Для OCEANBASE склеивает логин вида {@code user@tenant#cluster}.
+     * Если tenant пустой — возвращается просто userName (например, sys-пользователь).
+     * Для MSSQL — userName без изменений.
+     */
+    private static String buildUserName(InstanceConfig ic, DbType dbType) {
+        String user = ic.userName == null ? "" : ic.userName;
+        if (dbType != DbType.OCEANBASE) return user;
+
+        // Если пользователь уже содержит '@' — считаем, что строка уже сформирована
+        // (back-compat: можно положить "userJava@business_tenant#obcluster" прямо в UserName).
+        if (user.contains("@")) return user;
+
+        if (ic.tenant == null || ic.tenant.isBlank()) return user;
+
+        StringBuilder sb = new StringBuilder(user).append('@').append(ic.tenant.trim());
+        if (ic.cluster != null && !ic.cluster.isBlank()) {
+            sb.append('#').append(ic.cluster.trim());
+        }
+        return sb.toString();
     }
 
     private static void closeSilently(Connection c) {

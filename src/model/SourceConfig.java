@@ -2,16 +2,22 @@ package model;
 
 /**
  * Настройки источника данных. Определяет, откуда брать список серверов
- * или перечень заданий. Все параметры могут быть оставлены пустыми,
- * тогда будут использованы значения по умолчанию.
+ * или перечень заданий.
+ *
+ * Поддерживаемые значения {@link #type}:
+ *   MSSQL | OCEANBASE | MONGO | LocalFile.
+ *
+ * Поля {@code mssqlConnectionString} и {@code mssqlQuery} используются
+ * для обоих JDBC-источников (MSSQL и OCEANBASE) — имя оставлено
+ * прежним для обратной совместимости с существующим XML.
  */
 public class SourceConfig {
 
-    /** Тип источника: {@code MSSQL}, {@code MONGO} или {@code LocalFile}. */
+    /** Тип источника: MSSQL | OCEANBASE | MONGO | LocalFile. */
     public String type = "LocalFile";
-    /** JDBC-строка подключения к MSSQL (для типа {@code MSSQL}). */
+    /** JDBC-строка подключения (для MSSQL/OCEANBASE). */
     public String mssqlConnectionString = "";
-    /** Запрос, возвращающий требуемые данные из MSSQL. */
+    /** Запрос, возвращающий требуемые данные. */
     public String mssqlQuery = "";
     /** Строка подключения к MongoDB (для типа {@code MONGO}). */
     public String mongoConnectionString = "";

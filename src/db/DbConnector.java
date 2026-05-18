@@ -1,12 +1,17 @@
 package db;
 
+import model.DbType;
+
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.util.concurrent.CompletableFuture;
 import logging.LogService;
 
 /**
- * Утилитный класс для получения JDBC-соединения с MSSQL.
+ * Утилитный класс для получения JDBC-соединения.
+ *
+ * Поддерживает MSSQL и OCEANBASE (mysql-connector-j). Конкретный драйвер
+ * выбирается по {@link DbType}.
  */
 public final class DbConnector {
 
@@ -22,24 +27,21 @@ public final class DbConnector {
      * чтобы вызывающий смог доставить текст ошибки до ResponseProcessor.
      */
     public static CompletableFuture<Connection> getConnectionAsync(
-            String url, String user, String password) {
+            DbType dbType, String url, String user, String password) {
 
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // регистрация драйвера (fat-jar, shadow, plain classpath)
-                Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver");
-                LogService.printf("[DB] Connecting: url=%s user=%s%n", url, user);
+                String driverClass = dbType.driverClass();
+                Class.forName(driverClass);
+                LogService.printf("[DB] Connecting [%s]: url=%s user=%s%n", dbType, url, user);
                 return DriverManager.getConnection(url, user, password);
             } catch (ClassNotFoundException e) {
-                LogService.errorln("[DB-ERROR] JDBC driver not found. " +
-                        "Проверьте, что mssql-jdbc.jar есть в classpath.");
-                // пробрасываем выше
+                LogService.errorf("[DB-ERROR] JDBC driver not found for %s. " +
+                        "Проверьте, что соответствующий JAR есть в classpath.%n", dbType);
                 throw new RuntimeException(e);
             } catch (Exception ex) {
-                // Подробный лог оставляем как есть (дубли не страшны по ТЗ)
                 LogService.errorf("[DB-ERROR] Can't connect: url=%s user=%s – %s%n",
                         url, user, ex.getMessage());
-                // пробрасываем выше — это ключ к доставке ошибки в ResponseProcessor
                 throw new RuntimeException(ex);
             }
         });

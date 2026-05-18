@@ -36,7 +36,7 @@ public final class AppConfigWriter {
         // Комментарий-подсказка
         root.appendChild(doc.createComment(
                 "\n  MSSQLCollector configuration file\n" +
-                        "  Type possible values: MSSQL | MONGO | LocalFile | Console\n" +
+                        "  Type possible values: MSSQL | OCEANBASE | MONGO | LocalFile | Console | PROMETHEUS\n" +
                         "  Leave parameters empty to use default behavior\n"));
 
         root.appendChild(doc.createComment(" Source of servers list "));
@@ -79,6 +79,14 @@ public final class AppConfigWriter {
         add(d, el, "MongoConnectionString", dc.mongoConnectionString);
         add(d, el, "MongoCollectionName",   dc.mongoCollectionName);
         add(d, el, "DirectoryPath",         dc.directoryPath);
+
+        // NEW
+        if (dc.prometheusUrl != null && !dc.prometheusUrl.isBlank()) {
+            add(d, el, "PrometheusUrl", dc.prometheusUrl);
+        }
+        if (dc.resultFormat != null && !dc.resultFormat.isBlank()) {
+            add(d, el, "ResultFormat", dc.resultFormat);
+        }
         return el;
     }
 

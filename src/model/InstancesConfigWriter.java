@@ -7,6 +7,7 @@ import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import java.io.File;
 import java.util.List;
+import java.util.Map;
 
 /** Сохраняет список InstanceConfig в XML-файл (формат, совместимый с InstancesConfigReader). */
 public final class InstancesConfigWriter {
@@ -29,6 +30,25 @@ public final class InstancesConfigWriter {
             add(doc, inst, "Port",          c.port == null ? "0" : c.port.toString());
             add(doc, inst, "UserName",      c.userName);
             add(doc, inst, "Password",      c.password);
+
+            // NEW: DbType пишем всегда (значение по умолчанию — MSSQL);
+            // Tenant и Cluster — только если непустые.
+            DbType t = c.dbType == null ? DbType.MSSQL : c.dbType;
+            add(doc, inst, "DbType", t.name());
+            if (c.tenant != null && !c.tenant.isBlank())  add(doc, inst, "Tenant",  c.tenant);
+            if (c.cluster != null && !c.cluster.isBlank()) add(doc, inst, "Cluster", c.cluster);
+
+            // ExtraLabels (необязательно)
+            if (c.extraLabels != null && !c.extraLabels.isEmpty()) {
+                Element labels = doc.createElement("ExtraLabels");
+                for (Map.Entry<String, String> e : c.extraLabels.entrySet()) {
+                    Element lb = doc.createElement("Label");
+                    lb.setAttribute("key", e.getKey());
+                    lb.setTextContent(e.getValue());
+                    labels.appendChild(lb);
+                }
+                inst.appendChild(labels);
+            }
         }
         Transformer t = TransformerFactory.newInstance().newTransformer();
         t.setOutputProperty(OutputKeys.INDENT, "yes");

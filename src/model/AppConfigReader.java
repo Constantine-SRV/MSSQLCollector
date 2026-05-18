@@ -5,9 +5,13 @@ import org.w3c.dom.*;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.File;
+import java.util.Locale;
 
 /**
  * Чтение конфигурационного файла приложения MSSQLCollector.
+ *
+ * Совместимо со старыми конфигами: новые теги (ResultFormat, OCEANBASE и т.д.)
+ * опциональны и при их отсутствии работает прежнее поведение.
  */
 public class AppConfigReader {
 
@@ -25,9 +29,9 @@ public class AppConfigReader {
         AppConfig cfg = new AppConfig();
 
         // --- TaskName / ThreadPoolSize ---
-        Element root = doc.getDocumentElement();               // <—- корневой элемент
+        Element root = doc.getDocumentElement();
         cfg.taskName       = getText(root, "TaskName");
-        cfg.threadPoolSize = parseIntSafe(getText(root,"ThreadPoolSize"), 8);
+        cfg.threadPoolSize = parseIntSafe(getText(root, "ThreadPoolSize"), 8);
 
         cfg.serversSource      = readSource(doc, "ServersSource");
         cfg.jobsSource         = readSource(doc, "JobsSource");
@@ -43,11 +47,16 @@ public class AppConfigReader {
         if (n instanceof Element el) {
             sc.type = getText(el, "Type");
 
-            /*  <<< ВОССТАНОВЛЕНО >>>
-                Сразу обогащаем строку подключения обязательными параметрами
-             */
+            // Сырая JDBC-строка
             String raw = getText(el, "MSSQLConnectionString");
-            sc.mssqlConnectionString = MssqlConnectionStringEnricher.enrich(raw);
+
+            // MSSQL-Enricher применяется только для MSSQL.
+            // Для OCEANBASE и прочих типов (LocalFile, Mongo, ...) — оставляем строку как есть.
+            if (isMssqlJdbcType(sc.type)) {
+                sc.mssqlConnectionString = MssqlConnectionStringEnricher.enrich(raw);
+            } else {
+                sc.mssqlConnectionString = raw == null ? "" : raw;
+            }
 
             sc.mssqlQuery            = getText(el, "MSSQLQuery");
             sc.mongoConnectionString = getText(el, "MongoConnectionString");
@@ -63,20 +72,37 @@ public class AppConfigReader {
         if (n instanceof Element el) {
             dc.type = getText(el, "Type");
 
-            /*  <<< ВОССТАНОВЛЕНО >>>  */
             String raw = getText(el, "MSSQLConnectionString");
-            dc.mssqlConnectionString = MssqlConnectionStringEnricher.enrich(raw);
+            if (isMssqlJdbcType(dc.type)) {
+                dc.mssqlConnectionString = MssqlConnectionStringEnricher.enrich(raw);
+            } else {
+                dc.mssqlConnectionString = raw == null ? "" : raw;
+            }
 
             dc.mssqlQuery            = getText(el, "MSSQLQuery");
             dc.mongoConnectionString = getText(el, "MongoConnectionString");
             dc.mongoCollectionName   = getText(el, "MongoCollectionName");
             dc.directoryPath         = getText(el, "DirectoryPath");
 
-            //  Prometheus
+            // Prometheus
             dc.prometheusUrl         = getText(el, "PrometheusUrl");
 
+            // NEW: формат сериализации результата (XML|JSON). Пустое → разрулится в ResponseProcessor.
+            dc.resultFormat          = getText(el, "ResultFormat");
         }
         return dc;
+    }
+
+    /**
+     * Должен ли вообще применяться MSSQL-enricher к строке подключения?
+     * Применяем только если явно указан MSSQL (или тип не указан вообще —
+     * исторический дефолт для обратной совместимости).
+     */
+    private static boolean isMssqlJdbcType(String type) {
+        if (type == null) return true;
+        String n = type.trim().toUpperCase(Locale.ROOT);
+        if (n.isEmpty()) return true;
+        return n.equals("MSSQL") || n.equals("SQLSERVER");
     }
 
     // ──────────────────────────────────────────────────────────────
