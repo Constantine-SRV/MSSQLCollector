@@ -32,8 +32,8 @@ public class Main {
         LogService.println("Version 2025-09-25-bld-2");
 
 
-        String cfgFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig.xml";
-      //  String cfgFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig_prom_ava.xml";
+      //  String cfgFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig.xml";
+        String cfgFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig_prom_ava.xml";
 
         AppConfig cfg = AppConfigReader.read(cfgFile);
         if (cfg == null) {

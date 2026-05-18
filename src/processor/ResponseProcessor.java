@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
-/*
+/**
  * Универсальный обработчик результатов. Куда писать определяется
  * {@code destCfg.type}:
  *   - MSSQL      → INSERT через mssql-jdbc
