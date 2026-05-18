@@ -29,7 +29,7 @@ public class Main {
     }
 
     public static void main(String[] args) throws Exception {
-        LogService.println("Version 2025-09-25-bld-2");
+        LogService.println("Version 2026-06-19-1");
 
 
       //  String cfgFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig.xml";
