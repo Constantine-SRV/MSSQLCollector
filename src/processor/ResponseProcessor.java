@@ -13,13 +13,13 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
-/**
+/*
  * Универсальный обработчик результатов. Куда писать определяется
  * {@code destCfg.type}:
  *   - MSSQL      → INSERT через mssql-jdbc
  *   - OCEANBASE  → INSERT через mysql-connector-j
  *   - PROMETHEUS → отправка в VictoriaMetrics
- *   - LOCALFILE  → файл out_*/<ci>_<reqId>.<ext>
+ *   - LOCALFILE  → файл out_/<ci>_<reqId>.<ext>
  *   - MONGO      → заглушка
  *
  * Формат сериализации результата задаётся {@code destCfg.resultFormat}:
