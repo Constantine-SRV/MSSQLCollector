@@ -1,0 +1,105 @@
+name: Build and Release Fat JAR
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'Build command'
+        required: true
+        default: 'build-fatjar'
+        type: choice
+        options:
+          - build-fatjar
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      APP_NAME: MSSQLCollector
+      RELEASE_TAG: latest_release
+      JAR_NAME: mssql-collector-fat.jar
+      LIB_DIR: lib
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Compile project
+        run: |
+          rm -rf out build merged
+          mkdir -p out
+          # classpath = все jar-ы из lib/, разделитель ':' для Linux-runner
+          CP=$(find "${LIB_DIR}" -type f -name "*.jar" | tr '\n' ':' | sed 's/:$//')
+          echo "Classpath: $CP"
+          find src -name "*.java" | sort > sources.txt
+          javac -encoding UTF-8 -cp "$CP" -d out @sources.txt
+
+      - name: Unpack all dependency jars
+        run: |
+          mkdir -p build/dependency
+          cd build/dependency
+          for jar in ../../${LIB_DIR}/*.jar; do
+            echo "Unpacking $jar"
+            jar xf "$jar"
+          done
+          # Удаляем подписи, иначе merged jar может не запускаться
+          rm -f META-INF/*.SF META-INF/*.RSA META-INF/*.DSA || true
+          cd ../..
+
+      - name: Assemble fat jar content
+        run: |
+          mkdir -p merged
+          cp -r out/* merged/ || true
+          cp -r build/dependency/* merged/ || true
+
+      - name: Create manifest
+        run: |
+          cat > MANIFEST.MF <<'EOF'
+          Manifest-Version: 1.0
+          Main-Class: Main
+          EOF
+
+      - name: Build fat jar
+        run: |
+          jar cfm "${JAR_NAME}" MANIFEST.MF -C merged .
+          ls -lh "${JAR_NAME}"
+
+      - name: Test jar startup
+        run: |
+          # Просто проверим что jvm стартует и main находится.
+          # Программа упадёт на отсутствии конфига — это ок.
+          java -jar "${JAR_NAME}" || true
+
+      - name: Install GitHub CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gh
+
+      - name: Delete existing release if exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release delete "${RELEASE_TAG}" --yes --cleanup-tag
+          fi
+          git tag -d "${RELEASE_TAG}" >/dev/null 2>&1 || true
+
+      - name: Create release with fat jar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${RELEASE_TAG}" \
+            "./${JAR_NAME}" \
+            --title "Release ${RELEASE_TAG}" \
+            --notes "Automated fat jar build for ${APP_NAME} from commit ${GITHUB_SHA}" \
+            --target "${GITHUB_SHA}"

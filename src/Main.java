@@ -33,7 +33,8 @@ public class Main {
 
 
       //  String cfgFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig.xml";
-        String cfgFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig_prom_ava.xml";
+       // String cfgFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig_prom_ava.xml";
+        String cfgFile = args.length > 0 ? args[0] : "ob_collector.xml";
 
         AppConfig cfg = AppConfigReader.read(cfgFile);
         if (cfg == null) {
