@@ -31,32 +31,38 @@ import java.util.Locale;
 public class ResponseProcessor {
     private final DestinationConfig destCfg;
     private final String outDirName;
+    private final String type;
+    private final PrometheusResultWriter prometheus;
     private static final DateTimeFormatter TS_FMT = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm");
 
     public ResponseProcessor(DestinationConfig destCfg) {
         this.destCfg = destCfg;
         this.outDirName = "out_" + LocalDateTime.now().format(TS_FMT);
+        this.type = destCfg.type == null ? "" : destCfg.type.trim().toUpperCase(Locale.ROOT);
+        // Неизвестный тип — ошибка на старте (раньше молча писали в локальные файлы,
+        // например при опечатке PROMETEUS).
+        switch (type) {
+            case "MSSQL", "OCEANBASE", "OB", "PROMETHEUS", "MONGO", "LOCALFILE", "FILE", "" -> { }
+            default -> throw new IllegalArgumentException("ResultsDestination: unknown Type '" + destCfg.type
+                    + "'. Allowed: MSSQL | OCEANBASE | PROMETHEUS | LOCALFILE");
+        }
+        this.prometheus = type.equals("PROMETHEUS") ? new PrometheusResultWriter(destCfg) : null;
     }
 
     /**
      * Главный метод обработки. rs может быть null (ошибка подключения/выполнения SQL).
      */
     public void handle(InstanceConfig ic, String reqId, ResultSet rs, String resultExec) throws Exception {
-        String type = destCfg.type == null ? "" : destCfg.type.trim().toUpperCase(Locale.ROOT);
         switch (type) {
             case "MSSQL" ->
                     saveToJdbc(DbType.MSSQL, ic.ci, reqId, rs, resultExec);
             case "OCEANBASE", "OB" ->
                     saveToJdbc(DbType.OCEANBASE, ic.ci, reqId, rs, resultExec);
-            case "PROMETHEUS" -> {
-                PrometheusResultWriter writer = new PrometheusResultWriter(destCfg);
-                writer.write(ic, reqId, rs, resultExec);
-            }
+            case "PROMETHEUS" ->
+                    prometheus.write(ic, reqId, rs, resultExec);
             case "MONGO" ->
                     LogService.printf("[RESP] MONGO write not implemented for %s_%s%n", ic.ci, reqId);
-            case "LOCALFILE", "" ->
-                    saveToLocalFile(ic.ci, reqId, rs, resultExec);
-            default ->
+            default ->   // LOCALFILE / FILE / ""
                     saveToLocalFile(ic.ci, reqId, rs, resultExec);
         }
     }
@@ -97,14 +103,11 @@ public class ResponseProcessor {
         }
 
         try {
-            // Явная регистрация драйвера
-            try { Class.forName(dbType.driverClass()); } catch (ClassNotFoundException ignored) {}
-
             LogService.printf("[DEBUG] %s Call: SQL=%s, ci=%s, reqId=%s, rows=%d, body-len=%d%n",
-                    dbType, destCfg.mssqlQuery, ci, reqId, rowCnt, body.length());
+                    dbType, destCfg.query, ci, reqId, rowCnt, body.length());
 
-            try (Connection conn = DriverManager.getConnection(destCfg.mssqlConnectionString)) {
-                String sql = destCfg.mssqlQuery == null ? "" : destCfg.mssqlQuery.trim();
+            try (Connection conn = db.JdbcConnections.open(dbType, destCfg.connection)) {
+                String sql = destCfg.query == null ? "" : destCfg.query.trim();
 
                 // Эвристика: одно слово (или schema.sp) — считаем именем хранимой процедуры.
                 boolean isSP = sql.matches("(?i)^([\\[]?\\w+[\\]]?\\.)?[\\[]?\\w+[\\]]?$");

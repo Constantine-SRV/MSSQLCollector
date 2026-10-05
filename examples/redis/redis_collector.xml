@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  Redis: список серверов и задания из локальных XML, результат — JSON-файлы в out_<дата>/.
+  Запуск:
+    export pas_r='...'
+    java -jar mssql-collector-fat.jar redis_collector.xml
+-->
+<MSSQLCollectorConfig>
+    <TaskName>RUN</TaskName>
+    <ThreadPoolSize>8</ThreadPoolSize>
+
+    <ServersSource>
+        <Type>LOCALFILE</Type>
+        <FileName>RedisInstances.xml</FileName>
+    </ServersSource>
+
+    <JobsSource>
+        <Type>LOCALFILE</Type>
+        <TargetDbType>REDIS</TargetDbType>
+        <FileName>RequestsRedis.xml</FileName>
+    </JobsSource>
+
+    <ResultsDestination>
+        <Type>LOCALFILE</Type>
+        <ResultFormat>JSON</ResultFormat>
+    </ResultsDestination>
+
+    <LogsDestination>
+        <Type>CONSOLE</Type>
+    </LogsDestination>
+</MSSQLCollectorConfig>

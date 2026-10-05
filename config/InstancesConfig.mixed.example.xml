@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  Пример смешанного списка инстансов (для <ServersSource><Type>LocalFile</Type>).
+  Старые записи без <DbType> по-прежнему работают как MSSQL.
+-->
+<Instances>
+    <!-- Старая запись — работает как раньше (MSSQL по умолчанию) -->
+    <Instance>
+        <CI>CI00002</CI>
+        <InstanceName>sqlupdate2019</InstanceName>
+        <Port>0</Port>
+        <UserName>userJava</UserName>
+        <Password>123</Password>
+    </Instance>
+
+    <!-- Новая запись для MSSQL — с явным указанием DbType -->
+    <Instance>
+        <CI>CI00003</CI>
+        <InstanceName>sqlupdate2019</InstanceName>
+        <Port>1433</Port>
+        <UserName>userJava</UserName>
+        <Password>123</Password>
+        <DbType>MSSQL</DbType>
+        <ExtraLabels>
+            <Label key="env">prod</Label>
+            <Label key="dc">MSK1</Label>
+        </ExtraLabels>
+    </Instance>
+
+    <!-- OceanBase через OBProxy. UserName может быть как просто 'collector',
+         так и уже готовое 'collector@business_tenant#obcluster' — оба варианта работают. -->
+    <Instance>
+        <CI>CI00100</CI>
+        <InstanceName>192.168.55.200</InstanceName>
+        <Port>2883</Port>
+        <UserName>collector</UserName>
+        <Password>secret</Password>
+        <DbType>OCEANBASE</DbType>
+        <Tenant>business_tenant</Tenant>
+        <Cluster>obcluster</Cluster>
+        <ExtraLabels>
+            <Label key="env">prod</Label>
+            <Label key="dc">MSK1</Label>
+        </ExtraLabels>
+    </Instance>
+</Instances>

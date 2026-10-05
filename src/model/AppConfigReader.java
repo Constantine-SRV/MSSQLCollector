@@ -1,6 +1,6 @@
 package model;
 
-import db.MssqlConnectionStringEnricher;
+import logging.LogService;
 import org.w3c.dom.*;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -10,8 +10,17 @@ import java.util.Locale;
 /**
  * Чтение конфигурационного файла приложения MSSQLCollector.
  *
- * Совместимо со старыми конфигами: новые теги (ResultFormat, OCEANBASE и т.д.)
- * опциональны и при их отсутствии работает прежнее поведение.
+ * Новый формат подключения (для ServersSource / JobsSource / ResultsDestination):
+ * <pre>
+ *   &lt;Type&gt;OCEANBASE&lt;/Type&gt;
+ *   &lt;Connection&gt; Host / Port / User / Tenant / Cluster / Password / Database / Params &lt;/Connection&gt;
+ *   &lt;Query&gt;SELECT ...&lt;/Query&gt;
+ * </pre>
+ * или готовый URL: {@code <ConnectionString>jdbc:...</ConnectionString>}.
+ *
+ * Обратная совместимость: {@code <MSSQLConnectionString>} и {@code <MSSQLQuery>}
+ * читаются как раньше (с предупреждением в логе).
+ * Значение "-" трактуется как пустое.
  */
 public class AppConfigReader {
 
@@ -30,7 +39,8 @@ public class AppConfigReader {
 
         // --- TaskName / ThreadPoolSize ---
         Element root = doc.getDocumentElement();
-        cfg.taskName       = getText(root, "TaskName");
+        String task = getText(root, "TaskName");
+        cfg.taskName       = task.isEmpty() ? "RUN" : task;
         cfg.threadPoolSize = parseIntSafe(getText(root, "ThreadPoolSize"), 8);
 
         cfg.serversSource      = readSource(doc, "ServersSource");
@@ -45,23 +55,13 @@ public class AppConfigReader {
         SourceConfig sc = new SourceConfig();
         Node n = doc.getElementsByTagName(tag).item(0);
         if (n instanceof Element el) {
-            sc.type = getText(el, "Type");
-
-            // Сырая JDBC-строка
-            String raw = getText(el, "MSSQLConnectionString");
-
-            // MSSQL-Enricher применяется только для MSSQL.
-            // Для OCEANBASE и прочих типов (LocalFile, Mongo, ...) — оставляем строку как есть.
-            if (isMssqlJdbcType(sc.type)) {
-                sc.mssqlConnectionString = MssqlConnectionStringEnricher.enrich(raw);
-            } else {
-                sc.mssqlConnectionString = raw == null ? "" : raw;
-            }
-
-            sc.mssqlQuery            = getText(el, "MSSQLQuery");
+            sc.type                  = getText(el, "Type");
+            sc.connection            = readConnection(el, tag);
+            sc.query                 = readQuery(el, tag);
             sc.mongoConnectionString = getText(el, "MongoConnectionString");
             sc.mongoCollectionName   = getText(el, "MongoCollectionName");
             sc.fileName              = getText(el, "FileName");
+            sc.targetDbType          = DbType.parseOrNull(getText(el, "TargetDbType"));
         }
         return sc;
     }
@@ -70,48 +70,94 @@ public class AppConfigReader {
         DestinationConfig dc = new DestinationConfig();
         Node n = doc.getElementsByTagName(tag).item(0);
         if (n instanceof Element el) {
-            dc.type = getText(el, "Type");
-
-            String raw = getText(el, "MSSQLConnectionString");
-            if (isMssqlJdbcType(dc.type)) {
-                dc.mssqlConnectionString = MssqlConnectionStringEnricher.enrich(raw);
-            } else {
-                dc.mssqlConnectionString = raw == null ? "" : raw;
-            }
-
-            dc.mssqlQuery            = getText(el, "MSSQLQuery");
+            dc.type                  = getText(el, "Type");
+            dc.connection            = readConnection(el, tag);
+            dc.query                 = readQuery(el, tag);
             dc.mongoConnectionString = getText(el, "MongoConnectionString");
             dc.mongoCollectionName   = getText(el, "MongoCollectionName");
             dc.directoryPath         = getText(el, "DirectoryPath");
-
-            // Prometheus
             dc.prometheusUrl         = getText(el, "PrometheusUrl");
-
-            // NEW: формат сериализации результата (XML|JSON). Пустое → разрулится в ResponseProcessor.
             dc.resultFormat          = getText(el, "ResultFormat");
         }
         return dc;
     }
 
-    /**
-     * Должен ли вообще применяться MSSQL-enricher к строке подключения?
-     * Применяем только если явно указан MSSQL (или тип не указан вообще —
-     * исторический дефолт для обратной совместимости).
-     */
-    private static boolean isMssqlJdbcType(String type) {
-        if (type == null) return true;
-        String n = type.trim().toUpperCase(Locale.ROOT);
-        if (n.isEmpty()) return true;
-        return n.equals("MSSQL") || n.equals("SQLSERVER");
+    /** {@code <Connection>} + {@code <ConnectionString>} / устаревший {@code <MSSQLConnectionString>}. */
+    private static ConnectionConfig readConnection(Element parent, String sectionTag) {
+        ConnectionConfig cc = new ConnectionConfig();
+
+        Element c = child(parent, "Connection");
+        if (c != null) {
+            cc.host     = nullIfBlank(getText(c, "Host"));
+            String port = getText(c, "Port");
+            if (!port.isEmpty()) {
+                try { cc.port = Integer.parseInt(port); }
+                catch (NumberFormatException e) {
+                    throw new IllegalArgumentException(sectionTag + "/Connection/Port is not a number: " + port);
+                }
+            }
+            cc.user     = nullIfBlank(getText(c, "User"));
+            cc.password = nullIfBlank(getText(c, "Password"));
+            cc.tenant   = nullIfBlank(getText(c, "Tenant"));
+            cc.cluster  = nullIfBlank(getText(c, "Cluster"));
+            cc.database = nullIfBlank(getText(c, "Database"));
+            cc.params   = nullIfBlank(getText(c, "Params"));
+            cc.integratedSecurity = "true".equalsIgnoreCase(getText(c, "IntegratedSecurity"));
+        }
+
+        String url = getText(parent, "ConnectionString");
+        if (url.isEmpty()) {
+            url = getText(parent, "MSSQLConnectionString");
+            if (!url.isEmpty()) {
+                LogService.printf("[CFG] %s: <MSSQLConnectionString> is deprecated, use <Connection> or <ConnectionString>%n",
+                        sectionTag);
+            }
+        }
+        // Многострочные URL из старых конфигов: убираем переводы строк и пробелы по краям частей
+        if (!url.isEmpty()) cc.connectionString = url.replaceAll("\\s*[\\r\\n]+\\s*", "");
+        return cc;
+    }
+
+    /** {@code <Query>} / устаревший {@code <MSSQLQuery>}. */
+    private static String readQuery(Element parent, String sectionTag) {
+        String q = getText(parent, "Query");
+        if (q.isEmpty()) {
+            q = getText(parent, "MSSQLQuery");
+            if (!q.isEmpty()) {
+                LogService.printf("[CFG] %s: <MSSQLQuery> is deprecated, use <Query>%n", sectionTag);
+            }
+        }
+        return q;
     }
 
     // ──────────────────────────────────────────────────────────────
+
+    /** Текст первого потомка с данным тегом; "-" и отсутствие → "". */
     private static String getText(Element el, String tag) {
         NodeList nl = el.getElementsByTagName(tag);
-        return (nl.getLength() == 0) ? "" : nl.item(0).getTextContent().trim();
+        if (nl.getLength() == 0) return "";
+        String s = nl.item(0).getTextContent();
+        s = s == null ? "" : s.trim();
+        return s.equals("-") ? "" : s;
+    }
+
+    private static Element child(Element parent, String tag) {
+        for (Node n = parent.getFirstChild(); n != null; n = n.getNextSibling()) {
+            if (n instanceof Element e && e.getTagName().equals(tag)) return e;
+        }
+        return null;
+    }
+
+    private static String nullIfBlank(String s) {
+        return (s == null || s.isBlank()) ? null : s.trim();
     }
 
     private static int parseIntSafe(String s, int defVal) {
-        try { return Integer.parseInt(s); } catch (Exception e) { return defVal; }
+        try { return Integer.parseInt(s.trim()); } catch (Exception e) { return defVal; }
+    }
+
+    /** Нормализованный тип (UPPER, без пробелов); пусто → "". */
+    public static String norm(String type) {
+        return type == null ? "" : type.trim().toUpperCase(Locale.ROOT);
     }
 }

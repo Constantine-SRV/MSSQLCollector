@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Задания для Prometheus/VictoriaMetrics: только числовые метрики уйдут в VM. -->
+<Queries>
+    <Query id="MEMORY">INFO memory</Query>
+    <Query id="STATS">INFO stats</Query>
+    <Query id="CLIENTS">INFO clients</Query>
+    <Query id="REPL">INFO replication</Query>
+    <Query id="KEYSPACE">INFO keyspace</Query>
+    <Query id="CLUSTER_INFO">CLUSTER INFO</Query>
+</Queries>

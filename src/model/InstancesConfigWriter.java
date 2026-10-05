@@ -37,6 +37,7 @@ public final class InstancesConfigWriter {
             add(doc, inst, "DbType", t.name());
             if (c.tenant != null && !c.tenant.isBlank())  add(doc, inst, "Tenant",  c.tenant);
             if (c.cluster != null && !c.cluster.isBlank()) add(doc, inst, "Cluster", c.cluster);
+            if (c.tls) add(doc, inst, "Tls", "true");
 
             // ExtraLabels (необязательно)
             if (c.extraLabels != null && !c.extraLabels.isEmpty()) {

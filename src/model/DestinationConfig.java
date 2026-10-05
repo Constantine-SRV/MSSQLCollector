@@ -9,10 +9,10 @@ public class DestinationConfig {
     /** Тип назначения: MSSQL | OCEANBASE | MONGO | LOCALFILE | CONSOLE | PROMETHEUS */
     public String type;
 
-    // Общая JDBC-конфигурация (используется для MSSQL и OCEANBASE).
-    // Имена полей сохранены как mssql* для обратной совместимости с прежним XML.
-    public String mssqlConnectionString;
-    public String mssqlQuery;
+    /** Подключение для MSSQL/OCEANBASE (см. {@link ConnectionConfig}). */
+    public ConnectionConfig connection = new ConnectionConfig();
+    /** INSERT с 4 параметрами (ci, reqId, body, resultExec) или имя хранимой процедуры. */
+    public String query;
 
     // Mongo-specific
     public String mongoConnectionString;

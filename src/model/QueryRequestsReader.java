@@ -37,11 +37,15 @@ public class QueryRequestsReader {
                 LogService.println("[WARN] MongoDB jobs source is not implemented yet!");
                 return new ArrayList<>();
             case "LOCALFILE":
-            default:
+            case "FILE":
+            case "":
                 String file = appConfig.jobsSource.fileName == null || appConfig.jobsSource.fileName.isEmpty()
                         ? "QueryRequests.xml"
                         : appConfig.jobsSource.fileName;
                 return readFromLocalFile(file);
+            default:
+                throw new IllegalArgumentException("JobsSource: unknown Type '" + appConfig.jobsSource.type
+                        + "'. Allowed: MSSQL | OCEANBASE | LOCALFILE");
         }
     }
 
@@ -49,17 +53,14 @@ public class QueryRequestsReader {
     private static List<QueryRequest> readFromJdbc(SourceConfig cfg, DbType dbType) throws Exception {
         List<QueryRequest> list = new ArrayList<>();
 
-        try {
-            Class.forName(dbType.driverClass());
-        } catch (ClassNotFoundException e) {
-            LogService.errorf("QueryRequestsReader(%s): JDBC driver not found: %s%n",
-                    dbType, dbType.driverClass());
-            throw e;
+        if (cfg.query == null || cfg.query.isBlank()) {
+            throw new IllegalArgumentException("JobsSource: <Query> is empty");
         }
+        LogService.printf("QueryRequestsReader: reading jobs from %s %s%n", dbType, cfg.connection.describe());
 
-        try (Connection con = DriverManager.getConnection(cfg.mssqlConnectionString);
+        try (Connection con = db.JdbcConnections.open(dbType, cfg.connection);
              Statement st = con.createStatement();
-             ResultSet rs = st.executeQuery(cfg.mssqlQuery)) {
+             ResultSet rs = st.executeQuery(cfg.query)) {
             while (rs.next()) {
                 String id   = rs.getString("requestId");
                 String text = rs.getString("queryText");

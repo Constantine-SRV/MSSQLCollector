@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  Redis: список серверов из MSSQL, задания из локального XML, результат — в MSSQL (процедура).
+
+  Запрос списка серверов должен вернуть колонки:
+    ci, instanceName, port, userName, password, dbType ('REDIS'), tls (1/0)
+    + любые другие непустые колонки → extraLabels.
+  Пароль пустой → env MSSQL_<USERNAME>_PASSWORD или запрос с консоли.
+-->
+<MSSQLCollectorConfig>
+    <TaskName>RUN</TaskName>
+    <ThreadPoolSize>16</ThreadPoolSize>
+
+    <ServersSource>
+        <Type>MSSQL</Type>
+        <Connection>
+            <Host>sqlupdate2019</Host>
+            <Port>1433</Port>
+            <User>userJava</User>
+            <Password></Password>
+            <Database>adminTools</Database>
+        </Connection>
+        <Query>
+            SELECT ci, instanceName, port, userName, password, 'REDIS' AS dbType, tls, env
+            FROM dbo.tbl_redis_list
+        </Query>
+    </ServersSource>
+
+    <JobsSource>
+        <Type>LOCALFILE</Type>
+        <TargetDbType>REDIS</TargetDbType>
+        <FileName>RequestsRedis.xml</FileName>
+    </JobsSource>
+
+    <ResultsDestination>
+        <Type>MSSQL</Type>
+        <Connection>
+            <Host>sqlupdate2019</Host>
+            <Port>1433</Port>
+            <User>userJava</User>
+            <Database>adminTools</Database>
+        </Connection>
+        <!-- 4 параметра: ci, reqId, body, resultExec (или имя процедуры) -->
+        <Query>dbo.RedisResultInsert</Query>
+        <ResultFormat>XML</ResultFormat>
+    </ResultsDestination>
+
+    <LogsDestination>
+        <Type>CONSOLE;LOCALFILE</Type>
+    </LogsDestination>
+</MSSQLCollectorConfig>

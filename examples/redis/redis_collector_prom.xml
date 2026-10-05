@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  Redis → VictoriaMetrics. Используйте задания с метриками (INFO memory, INFO stats, CLUSTER INFO ...).
+  При недоступности инстанса отправляется availability{ci="..."} 0.
+-->
+<MSSQLCollectorConfig>
+    <TaskName>RUN</TaskName>
+    <ThreadPoolSize>8</ThreadPoolSize>
+
+    <ServersSource>
+        <Type>LOCALFILE</Type>
+        <FileName>RedisInstances.xml</FileName>
+    </ServersSource>
+
+    <JobsSource>
+        <Type>LOCALFILE</Type>
+        <TargetDbType>REDIS</TargetDbType>
+        <FileName>RequestsRedisMetrics.xml</FileName>
+    </JobsSource>
+
+    <ResultsDestination>
+        <Type>PROMETHEUS</Type>
+        <PrometheusUrl>http://192.168.55.31:1102/api/v1/import/prometheus</PrometheusUrl>
+    </ResultsDestination>
+
+    <LogsDestination>
+        <Type>CONSOLE</Type>
+    </LogsDestination>
+</MSSQLCollectorConfig>

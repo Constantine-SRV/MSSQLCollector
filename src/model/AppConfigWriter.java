@@ -37,6 +37,7 @@ public final class AppConfigWriter {
         root.appendChild(doc.createComment(
                 "\n  MSSQLCollector configuration file\n" +
                         "  Type possible values: MSSQL | OCEANBASE | MONGO | LocalFile | Console | PROMETHEUS\n" +
+                        "  JobsSource/TargetDbType: MSSQL | OCEANBASE | REDIS (empty = all JDBC instances)\n" +
                         "  Leave parameters empty to use default behavior\n"));
 
         root.appendChild(doc.createComment(" Source of servers list "));
@@ -62,8 +63,9 @@ public final class AppConfigWriter {
     private static Element writeSource(Document d, String tag, SourceConfig sc) {
         Element el = d.createElement(tag);
         add(d, el, "Type",                  blank(sc.type, "MSSQL"));
-        add(d, el, "MSSQLConnectionString", sc.mssqlConnectionString);
-        add(d, el, "MSSQLQuery",            sc.mssqlQuery);
+        if (sc.targetDbType != null) add(d, el, "TargetDbType", sc.targetDbType.name());
+        writeConnection(d, el, sc.connection);
+        add(d, el, "Query",                 sc.query);
         add(d, el, "MongoConnectionString", sc.mongoConnectionString);
         add(d, el, "MongoCollectionName",   sc.mongoCollectionName);
         add(d, el, "FileName",              sc.fileName);
@@ -74,8 +76,8 @@ public final class AppConfigWriter {
         Element el = d.createElement(tag);
         String def = "ResultsDestination".equals(tag) ? "LocalFile" : "Console";
         add(d, el, "Type",                  blank(dc.type, def));
-        add(d, el, "MSSQLConnectionString", dc.mssqlConnectionString);
-        add(d, el, "MSSQLQuery",            dc.mssqlQuery);
+        writeConnection(d, el, dc.connection);
+        add(d, el, "Query",                 dc.query);
         add(d, el, "MongoConnectionString", dc.mongoConnectionString);
         add(d, el, "MongoCollectionName",   dc.mongoCollectionName);
         add(d, el, "DirectoryPath",         dc.directoryPath);
@@ -88,6 +90,25 @@ public final class AppConfigWriter {
             add(d, el, "ResultFormat", dc.resultFormat);
         }
         return el;
+    }
+
+    /** &lt;Connection&gt; (если задан Host) и/или &lt;ConnectionString&gt; (если задан URL). */
+    private static void writeConnection(Document d, Element parent, ConnectionConfig cc) {
+        if (cc == null) return;
+        if (cc.hasHost()) {
+            Element c = d.createElement("Connection");
+            add(d, c, "Host", cc.host);
+            if (cc.port != null)     add(d, c, "Port", cc.port.toString());
+            if (cc.user != null)     add(d, c, "User", cc.user);
+            if (cc.tenant != null)   add(d, c, "Tenant", cc.tenant);
+            if (cc.cluster != null)  add(d, c, "Cluster", cc.cluster);
+            if (cc.password != null) add(d, c, "Password", cc.password);
+            if (cc.database != null) add(d, c, "Database", cc.database);
+            if (cc.integratedSecurity) add(d, c, "IntegratedSecurity", "true");
+            if (cc.params != null)   add(d, c, "Params", cc.params);
+            parent.appendChild(c);
+        }
+        if (cc.hasUrl()) add(d, parent, "ConnectionString", cc.connectionString);
     }
 
     private static void add(Document d, Node parent, String tag, String val) {

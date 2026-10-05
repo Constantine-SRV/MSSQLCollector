@@ -20,6 +20,7 @@ import org.w3c.dom.*;
  *  - dbType   / db_type  → InstanceConfig.dbType
  *  - tenant              → InstanceConfig.tenant
  *  - cluster             → InstanceConfig.cluster
+ *  - tls                 → InstanceConfig.tls (true/1/yes)
  *
  * Все остальные не-стандартные непустые столбцы автоматически сохраняются в extraLabels.
  *
@@ -72,23 +73,14 @@ public final class InstancesConfigReader {
     private static List<InstanceConfig> readFromJdbc(SourceConfig sc, DbType srcDbType) throws Exception {
         List<InstanceConfig> list = new ArrayList<>();
 
-        String url = sc.mssqlConnectionString;
-        String sql = sc.mssqlQuery;
-        if (url == null || url.isBlank() || sql == null || sql.isBlank()) {
-            LogService.errorf("InstancesConfigReader(%s): empty connection string or query.%n", srcDbType);
+        String sql = sc.query;
+        if (!sc.connection.isConfigured() || sql == null || sql.isBlank()) {
+            LogService.errorf("InstancesConfigReader(%s): empty connection or query.%n", srcDbType);
             return list;
         }
+        LogService.printf("InstancesConfigReader: reading servers from %s %s%n", srcDbType, sc.connection.describe());
 
-        // Явная загрузка драйвера — на случай fat-jar / нестандартного classloader
-        try {
-            Class.forName(srcDbType.driverClass());
-        } catch (ClassNotFoundException e) {
-            LogService.errorf("InstancesConfigReader(%s): JDBC driver not found: %s%n",
-                    srcDbType, srcDbType.driverClass());
-            throw e;
-        }
-
-        try (Connection c = DriverManager.getConnection(url);
+        try (Connection c = db.JdbcConnections.open(srcDbType, sc.connection);
              Statement st  = c.createStatement();
              ResultSet rs  = st.executeQuery(sql)) {
 
@@ -117,9 +109,16 @@ public final class InstancesConfigReader {
                 String dbTypeStr = pickStr(rs, md, "dbType", "DbType", "db_type", "DBType");
                 // Если колонка вообще отсутствует / пустая — для MSSQL-источника считаем MSSQL,
                 // для OCEANBASE-источника по умолчанию ставим OCEANBASE (логичный дефолт).
-                ic.dbType = (dbTypeStr == null || dbTypeStr.isBlank())
-                        ? srcDbType
-                        : DbType.parse(dbTypeStr);
+                try {
+                    ic.dbType = (dbTypeStr == null || dbTypeStr.isBlank())
+                            ? srcDbType
+                            : DbType.parse(dbTypeStr);
+                } catch (IllegalArgumentException e) {
+                    LogService.errorf("InstancesConfigReader(%s): row ci=%s skipped: %s%n",
+                            srcDbType, ic.ci, e.getMessage());
+                    continue;
+                }
+                ic.tls = isTrue(pickStr(rs, md, "tls", "Tls", "TLS", "ssl"));
 
                 ic.tenant  = nullIfBlank(pickStr(rs, md, "tenant",  "Tenant",  "ob_tenant"));
                 ic.cluster = nullIfBlank(pickStr(rs, md, "cluster", "Cluster", "ob_cluster"));
@@ -130,7 +129,8 @@ public final class InstancesConfigReader {
                         "port", "username", "user", "login", "password", "pwd",
                         "dbtype", "db_type",
                         "tenant", "ob_tenant",
-                        "cluster", "ob_cluster"
+                        "cluster", "ob_cluster",
+                        "tls", "ssl"
                 );
                 for (int i = 1; i <= colCount; i++) {
                     String col = md.getColumnLabel(i);
@@ -199,7 +199,14 @@ public final class InstancesConfigReader {
 
             // NEW: DbType / Tenant / Cluster
             String dbTypeStr = text(el, "DbType");
-            ic.dbType  = (dbTypeStr.isEmpty()) ? DbType.MSSQL : DbType.parse(dbTypeStr);
+            try {
+                ic.dbType = DbType.parse(dbTypeStr);
+            } catch (IllegalArgumentException e) {
+                LogService.errorf("InstancesConfigReader(LocalFile): <Instance> CI=%s skipped: %s%n",
+                        ic.ci, e.getMessage());
+                continue;
+            }
+            ic.tls     = isTrue(text(el, "Tls"));
             ic.tenant  = nullIfBlank(text(el, "Tenant"));
             ic.cluster = nullIfBlank(text(el, "Cluster"));
 
@@ -239,6 +246,12 @@ public final class InstancesConfigReader {
         if (nl.getLength() == 0) return "";
         String s = nl.item(0).getTextContent();
         return s == null ? "" : s.trim();
+    }
+
+    private static boolean isTrue(String s) {
+        if (s == null) return false;
+        String t = s.trim().toLowerCase(Locale.ROOT);
+        return t.equals("true") || t.equals("1") || t.equals("yes") || t.equals("y");
     }
 
     private static String nullIfBlank(String s) {

@@ -29,7 +29,7 @@ public class Main {
     }
 
     public static void main(String[] args) throws Exception {
-        LogService.println("Version 2026-06-19-1");
+        LogService.println("Version 2026-10-05-redis-1");
 
 
       //  String cfgFile = args.length > 0 ? args[0] : "MSSQLCollectorConfig.xml";
@@ -64,15 +64,22 @@ public class Main {
         /* ── 1. Чтение конфигов ───────────────────────────────── */
         long t0Total = System.nanoTime();
 
-        List<InstanceConfig> servers = InstancesConfigReader.readConfig(cfg);
+        ResponseProcessor resp = new ResponseProcessor(cfg.resultsDestination); // проверка Type до опроса
+
+        List<InstanceConfig> servers = filterByTarget(
+                InstancesConfigReader.readConfig(cfg), cfg.jobsSource.targetDbType);
         List<QueryRequest>   queries = QueryRequestsReader.read(cfg);
 
-        /* ── 2. Подготовка (пароли + обогащение строк) ────────── */
+        if (servers.isEmpty() || queries.isEmpty()) {
+            LogService.printf("Nothing to do: servers=%d, queries=%d%n", servers.size(), queries.size());
+            return;
+        }
+
+        /* ── 2. Подготовка (пароли) ───────────────────────────── */
         InstanceConfigEnreacher.enrichWithPasswords(servers);
-        ResponseProcessor resp = new ResponseProcessor(cfg.resultsDestination);
 
         ExecutorService pool = Executors.newFixedThreadPool(
-                Math.min(servers.size(), cfg.threadPoolSize));
+                Math.max(1, Math.min(servers.size(), cfg.threadPoolSize)));
 
         /* ── 3. Параллельный опрос всех серверов ──────────────── */
         long t0Exec = System.nanoTime();
@@ -94,6 +101,24 @@ public class Main {
         long totalMs = (System.nanoTime() - t0Total) / 1_000_000;
         LogService.printf("[TIME] runFullPipeline finished in %d ms (%.2f s)%n",
                 totalMs, totalMs / 1000.0);
+    }
+
+    /**
+     * Оставляет только инстансы целевого типа (JobsSource/TargetDbType).
+     * Не задан — все JDBC-инстансы (MSSQL + OCEANBASE), как раньше; REDIS пропускается,
+     * чтобы SQL-задания не уходили в Redis.
+     */
+    static List<InstanceConfig> filterByTarget(List<InstanceConfig> all, DbType target) {
+        List<InstanceConfig> out = new java.util.ArrayList<>();
+        int skipped = 0;
+        for (InstanceConfig ic : all) {
+            DbType t = ic.dbType == null ? DbType.MSSQL : ic.dbType;
+            boolean ok = (target == null) ? t.isJdbc() : t == target;
+            if (ok) out.add(ic); else skipped++;
+        }
+        LogService.printf("[CFG] TargetDbType=%s: %d instances selected, %d skipped%n",
+                target == null ? "(any JDBC)" : target, out.size(), skipped);
+        return out;
     }
 
     /* ========== режим SAVE_CONFIGS ============================= */

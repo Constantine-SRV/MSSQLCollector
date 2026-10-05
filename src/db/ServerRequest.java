@@ -12,10 +12,9 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
-import static java.util.Objects.requireNonNull;
 
 /**
- * Задача на выполнение набора запросов для одного инстанса (MSSQL/OceanBase).
+ * Задача на выполнение набора запросов для одного инстанса (MSSQL/OceanBase/Redis).
  * Последовательно выполняет запросы и передаёт результаты в {@link processor.ResponseProcessor}.
  */
 public record ServerRequest(
@@ -26,12 +25,17 @@ public record ServerRequest(
 
     public CompletableFuture<Void> execute(Executor executor) {
         DbType dbType = cfg.dbType == null ? DbType.MSSQL : cfg.dbType;
-        String url = buildUrl(cfg, dbType);
-        String effectiveUser = buildUserName(cfg, dbType);
+
+        if (dbType == DbType.REDIS) {
+            return db.redis.RedisServerRequest.execute(cfg, queries, responseProcessor, executor);
+        }
+
+        String url = JdbcConnections.buildUrl(cfg, dbType);
+        String effectiveUser = JdbcConnections.buildUserName(cfg, dbType);
         LogService.printf("[START] CI=%s dbType=%s url=%s user=%s%n",
                 cfg.ci, dbType, url, effectiveUser);
 
-        return DbConnector.getConnectionAsync(dbType, url, effectiveUser, cfg.password)
+        return DbConnector.getConnectionAsync(dbType, url, effectiveUser, cfg.password, executor)
                 .thenCompose(conn -> runSequentially(conn, executor)
                         .whenComplete((v, ex) -> closeSilently(conn)))
                 .exceptionally(ex -> {
@@ -106,55 +110,7 @@ public record ServerRequest(
         }
     }
 
-    /* ===================== URL / USER / CLOSE ===================== */
-
-    /**
-     * Строит JDBC URL для соответствующего типа СУБД.
-     *
-     *  - MSSQL    : jdbc:sqlserver://host[:port];encrypt=false;trustServerCertificate=true + enrich
-     *  - OCEANBASE: jdbc:mysql://host[:port]/?useSSL=false&allowPublicKeyRetrieval=true&...
-     */
-    private static String buildUrl(InstanceConfig ic, DbType dbType) {
-        requireNonNull(ic.instanceName, "instanceName");
-        if (dbType == DbType.OCEANBASE) {
-            StringBuilder sb = new StringBuilder("jdbc:mysql://").append(ic.instanceName);
-            if (ic.port != null) sb.append(':').append(ic.port);
-            // Базовые безопасные параметры для OB-прокси
-            sb.append("/?useSSL=false")
-              .append("&allowPublicKeyRetrieval=true")
-              .append("&characterEncoding=utf8")
-              .append("&connectTimeout=5000")
-              .append("&socketTimeout=15000");
-            return sb.toString();
-        }
-        // MSSQL (default) — сохраняем существующее поведение
-        StringBuilder sb = new StringBuilder("jdbc:sqlserver://").append(ic.instanceName);
-        if (ic.port != null) sb.append(':').append(ic.port);
-        sb.append(";encrypt=false;trustServerCertificate=true");
-        return MssqlConnectionStringEnricher.enrich(sb.toString());
-    }
-
-    /**
-     * Для OCEANBASE склеивает логин вида {@code user@tenant#cluster}.
-     * Если tenant пустой — возвращается просто userName (например, sys-пользователь).
-     * Для MSSQL — userName без изменений.
-     */
-    private static String buildUserName(InstanceConfig ic, DbType dbType) {
-        String user = ic.userName == null ? "" : ic.userName;
-        if (dbType != DbType.OCEANBASE) return user;
-
-        // Если пользователь уже содержит '@' — считаем, что строка уже сформирована
-        // (back-compat: можно положить "userJava@business_tenant#obcluster" прямо в UserName).
-        if (user.contains("@")) return user;
-
-        if (ic.tenant == null || ic.tenant.isBlank()) return user;
-
-        StringBuilder sb = new StringBuilder(user).append('@').append(ic.tenant.trim());
-        if (ic.cluster != null && !ic.cluster.isBlank()) {
-            sb.append('#').append(ic.cluster.trim());
-        }
-        return sb.toString();
-    }
+    /* ===================== CLOSE ===================== */
 
     private static void closeSilently(Connection c) {
         try { if (c != null && !c.isClosed()) c.close(); } catch (Exception ignored) {}

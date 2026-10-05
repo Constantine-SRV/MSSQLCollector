@@ -10,6 +10,7 @@ import java.util.*;
  *  ▸ enrichWithPasswords(list) — пробежать список конфигов и подставить пароль
  *
  * Пароль ищем так:
+ *   0. Password = ${ENV_VAR} → значение переменной окружения
  *   1. переменная окружения  MSSQL_<USER>_PASSWORD
  *   2. если нет — спрашиваем у пользователя один раз,
  *      кешируем в static‑мапу и используем повторно.
@@ -59,7 +60,13 @@ public final class InstanceConfigEnreacher {
     /* ------------------------------------------------------------ */
     public static List<InstanceConfig> enrichWithPasswords(List<InstanceConfig> list) {
         for (InstanceConfig cfg : list) {
+            cfg.password = db.JdbcConnections.expandEnv(cfg.password);
             if (cfg.password == null || cfg.password.isEmpty()) {
+                // Redis без пользователя и пароля — без AUTH, ничего не спрашиваем
+                if (cfg.dbType == DbType.REDIS && (cfg.userName == null || cfg.userName.isBlank())) {
+                    cfg.password = "";
+                    continue;
+                }
                 cfg.password = resolvePassword(cfg.userName);
             }
         }

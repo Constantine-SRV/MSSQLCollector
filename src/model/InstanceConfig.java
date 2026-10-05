@@ -9,7 +9,8 @@ import java.util.Map;
  *
  * Поддерживаются:
  *  - MSSQL — драйвер mssql-jdbc;
- *  - OCEANBASE — драйвер mysql-connector-j (OB в MySQL-режиме).
+ *  - OCEANBASE — драйвер mysql-connector-j (OB в MySQL-режиме);
+ *  - REDIS — собственный RESP-клиент (порт по умолчанию 6379).
  */
 public class InstanceConfig {
     /** идентификатор сервера */
@@ -41,6 +42,9 @@ public class InstanceConfig {
      * у вас один кластер и OBProxy маршрутизирует автоматически.
      */
     public String cluster;
+
+    /** TLS-подключение (сейчас используется для REDIS). Колонка/тег {@code tls}. */
+    public boolean tls;
 
     /**
      * Произвольные дополнительные «лейблы» (теги) инстанса:

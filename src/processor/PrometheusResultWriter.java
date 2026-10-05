@@ -58,6 +58,10 @@ public class PrometheusResultWriter {
         }
 
         String metricsBody = buildMetricsFromResultSet(ic, reqId, rs);
+        if (metricsBody.isEmpty()) {
+            LogService.printf("[VM] CI=%s req=%s: nothing to send%n", ic.ci, reqId);
+            return;
+        }
         sendToVictoria(metricsBody);
 
         int rowCount = metricsBody.split("\n").length;
@@ -92,9 +96,13 @@ public class PrometheusResultWriter {
             }
         }
 
+        int skipped = 0;
         while (rs.next()) {
             String metric = safeMetricName(rs.getString("metric_name"));
             String value  = rs.getString("metric_value");
+            // Нечисловые значения VictoriaMetrics не примет — пропускаем строку
+            // (например, INFO у Redis содержит текстовые поля: role, redis_version ...)
+            if (!isNumeric(value)) { skipped++; continue; }
 
             body.append(metric);
             appendLabels(body, ic, reqId, rs); // reqId внутри больше не пишем
@@ -110,7 +118,10 @@ public class PrometheusResultWriter {
 
             body.append('\n');
         }
-
+        if (skipped > 0) {
+            LogService.printf("[VM] CI=%s req=%s: %d rows with non-numeric metric_value skipped%n",
+                    ic.ci, reqId, skipped);
+        }
         return body.toString();
     }
 
@@ -186,6 +197,11 @@ public class PrometheusResultWriter {
     }
 
     /* ===== утилиты ===== */
+
+    private static boolean isNumeric(String v) {
+        if (v == null || v.isBlank()) return false;
+        try { Double.parseDouble(v.trim()); return true; } catch (NumberFormatException e) { return false; }
+    }
 
     private boolean isConnectError(String resultExec) {
         if (resultExec == null) return false;

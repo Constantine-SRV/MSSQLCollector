@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  Задания для Redis (JobsSource/TargetDbType = REDIS).
+  Текст задания — команда Redis как в redis-cli (аргументы с пробелами — в кавычках),
+  или встроенное TOPOLOGY.
+
+  Как ответ превращается в таблицу:
+    TOPOLOGY            → mode | node | role | master | link_state | slots | flags | cluster_state
+    INFO [section]      → section | metric_name | metric_value   (metric_name = redis_<key>,
+                          keyspace: redis_db0_keys, redis_db0_expires ...)
+    CLUSTER INFO        → section | metric_name | metric_value
+    CLUSTER NODES       → node_id | node | flags | role | master_id | ping_sent | pong_recv
+                          | config_epoch | link_state | slots
+    CONFIG GET / HGETALL→ name | value
+    остальное           → value  или  idx | value
+
+  Для ResultsDestination=PROMETHEUS подходят задания INFO / CLUSTER INFO
+  (нечисловые значения, например role или redis_version, отбрасываются).
+
+  ACL-права пользователя под эти задания:
+    ACL SETUSER monitor on >*** -@all +ping +info +cluster|info +cluster|nodes +config|get
+-->
+<Queries>
+    <Query id="TOPOLOGY">TOPOLOGY</Query>
+    <Query id="REPL">INFO replication</Query>
+    <Query id="MEMORY">INFO memory</Query>
+    <Query id="STATS">INFO stats</Query>
+    <Query id="CLUSTER_INFO">CLUSTER INFO</Query>
+    <Query id="MAXMEMORY">CONFIG GET maxmemory*</Query>
+</Queries>

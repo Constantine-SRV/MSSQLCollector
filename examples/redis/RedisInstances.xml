@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  Список Redis-инстансов для MSSQLCollector.
+  • DbType   REDIS (обязательно, иначе считается MSSQL)
+  • Port     пусто/0 → 6379
+  • Tls      true → TLS (truststore JVM: -Djavax.net.ssl.trustStore=...)
+  • UserName ACL-пользователь (Redis 6+). Пусто → AUTH только паролем (requirepass)
+  • Password ${ENV_VAR} → из переменной окружения;
+             пусто → env MSSQL_<USERNAME>_PASSWORD или запрос с консоли (один раз на пользователя)
+  Опрашивайте КАЖДЫЙ узел кластера отдельно (INFO / CLUSTER NODES — локальные для узла).
+-->
+<Instances>
+    <Instance>
+        <CI>REDIS_DIAG_09</CI>
+        <InstanceName>test-diag00009.p4.local</InstanceName>
+        <Port>6379</Port>
+        <DbType>REDIS</DbType>
+        <Tls>true</Tls>
+        <UserName>monitor</UserName>
+        <Password>${pas_r}</Password>
+        <ExtraLabels>
+            <Label key="env">test</Label>
+            <Label key="cluster_name">diag</Label>
+        </ExtraLabels>
+    </Instance>
+    <Instance>
+        <CI>REDIS_DIAG_10</CI>
+        <InstanceName>test-diag00010.p4.local</InstanceName>
+        <Port>6379</Port>
+        <DbType>REDIS</DbType>
+        <Tls>true</Tls>
+        <UserName>monitor</UserName>
+        <Password>${pas_r}</Password>
+        <ExtraLabels>
+            <Label key="env">test</Label>
+            <Label key="cluster_name">diag</Label>
+        </ExtraLabels>
+    </Instance>
+    <Instance>
+        <CI>REDIS_DIAG_11</CI>
+        <InstanceName>test-diag00011.p4.local</InstanceName>
+        <Port>6379</Port>
+        <DbType>REDIS</DbType>
+        <Tls>true</Tls>
+        <UserName>monitor</UserName>
+        <Password>${pas_r}</Password>
+        <ExtraLabels>
+            <Label key="env">test</Label>
+            <Label key="cluster_name">diag</Label>
+        </ExtraLabels>
+    </Instance>
+</Instances>
